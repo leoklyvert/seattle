@@ -1,201 +1,489 @@
 # ============================================================
-# LR TECNOLOGIA
-# Assistente Técnico
-# Versão 1.4.0
+# ROBÔ LR TECNOLOGIA
+# Criado e desenvolvido por Leonardo M. Batista.
+# ============================================================
+# Menu principal
+# Integração dos módulos:
+#
+# 1 - Manutenção
+# 2 - Personalização
+# 3 - Programas
+# 4 - Office
+# 5 - Diagnóstico
+#
 # ============================================================
 
-Clear-Host
+$ErrorActionPreference = "SilentlyContinue"
+
+# ============================================================
+# CONFIGURAÇÃO
+# ============================================================
+
+$PastaBase = $PSScriptRoot
+
+# Arquivos dos módulos
+$ModuloManutencao    = Join-Path $PastaBase "manutencao.ps1"
+$ModuloPersonalizacao = Join-Path $PastaBase "personalizacao.ps1"
+$ModuloProgramas     = Join-Path $PastaBase "programas.ps1"
+$ModuloOffice        = Join-Path $PastaBase "office.ps1"
+
+# ============================================================
+# FUNÇÃO - PAUSA
+# ============================================================
+
+function Pausar {
+    Write-Host ""
+    Write-Host "Pressione ENTER para continuar..." -ForegroundColor Gray
+    Read-Host
+}
+
+# ============================================================
+# FUNÇÃO - EXECUTAR MÓDULO
+# ============================================================
+
+function Executar-Modulo {
+    param(
+        [string]$Arquivo,
+        [string]$Nome
+    )
+
+    Clear-Host
+
+    if (!(Test-Path $Arquivo)) {
+
+        Write-Host ""
+        Write-Host "ERRO: módulo não encontrado." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Módulo : $Nome" -ForegroundColor Yellow
+        Write-Host "Arquivo: $Arquivo" -ForegroundColor Gray
+        Write-Host ""
+
+        Pausar
+        return
+    }
+
+    Write-Host ""
+    Write-Host "Iniciando $Nome..." -ForegroundColor Cyan
+    Write-Host ""
+
+    try {
+
+        & $Arquivo
+
+    }
+    catch {
+
+        Write-Host ""
+        Write-Host "Ocorreu um erro ao executar o módulo." -ForegroundColor Red
+        Write-Host ""
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        Write-Host ""
+
+        Pausar
+    }
+}
+
+# ============================================================
+# FUNÇÃO - LISTA DE CLIENTES
+# ============================================================
+
+$ClientesContrato = @(
+    "A Casa do Panificador"
+    "Escritório Real de Contabilidade"
+    "Impacto Contabilidade"
+    "Futura Contabilidade"
+)
+
+# ============================================================
+# DIAGNÓSTICO - CLIENTE EXISTENTE
+# ============================================================
+
+function Menu-ClienteExistente {
+
+    while ($true) {
+
+        Clear-Host
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "                    CLIENTE EXISTENTE" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host ""
+
+        Write-Host "1 - Contrato Mensal" -ForegroundColor White
+        Write-Host "2 - Sem Contrato / Particular" -ForegroundColor White
+        Write-Host ""
+        Write-Host "0 - Voltar" -ForegroundColor Gray
+        Write-Host ""
+
+        $Opcao = Read-Host "Selecione uma opção"
+
+        switch ($Opcao) {
+
+            "1" {
+                Menu-ContratoMensal
+            }
+
+            "2" {
+                Diagnostico-Particular
+            }
+
+            "0" {
+                return
+            }
+
+            default {
+                Write-Host ""
+                Write-Host "Opção inválida." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# DIAGNÓSTICO - CONTRATO MENSAL
+# ============================================================
+
+function Menu-ContratoMensal {
+
+    while ($true) {
+
+        Clear-Host
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "                    CONTRATO MENSAL" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host ""
+
+        $Numero = 1
+
+        foreach ($Cliente in $ClientesContrato) {
+
+            Write-Host "$Numero - $Cliente" -ForegroundColor White
+
+            $Numero++
+        }
+
+        Write-Host ""
+        Write-Host "0 - Voltar" -ForegroundColor Gray
+        Write-Host ""
+
+        $Opcao = Read-Host "Selecione o cliente"
+
+        if ($Opcao -eq "0") {
+            return
+        }
+
+        $Indice = 0
+
+        if ([int]::TryParse($Opcao, [ref]$Indice)) {
+
+            if (
+                $Indice -ge 1 -and
+                $Indice -le $ClientesContrato.Count
+            ) {
+
+                $ClienteSelecionado =
+                    $ClientesContrato[$Indice - 1]
+
+                Executar-Diagnostico `
+                    -Cliente $ClienteSelecionado `
+                    -TipoCliente "Contrato Mensal"
+
+                return
+            }
+        }
+
+        Write-Host ""
+        Write-Host "Cliente inválido." -ForegroundColor Red
+        Start-Sleep -Seconds 1
+    }
+}
+
+# ============================================================
+# DIAGNÓSTICO - PARTICULAR
+# ============================================================
+
+function Diagnostico-Particular {
+
+    Clear-Host
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "                 CLIENTE PARTICULAR" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $NomeCliente = Read-Host "Digite o nome do cliente"
+
+    if ([string]::IsNullOrWhiteSpace($NomeCliente)) {
+
+        Write-Host ""
+        Write-Host "Nome do cliente não informado." -ForegroundColor Red
+
+        Pausar
+        return
+    }
+
+    Executar-Diagnostico `
+        -Cliente $NomeCliente `
+        -TipoCliente "Sem Contrato / Particular"
+}
+
+# ============================================================
+# DIAGNÓSTICO - CLIENTE NOVO
+# ============================================================
+
+function Diagnostico-ClienteNovo {
+
+    Clear-Host
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "                      CLIENTE NOVO" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $NomeCliente = Read-Host "Digite o nome do cliente"
+
+    if ([string]::IsNullOrWhiteSpace($NomeCliente)) {
+
+        Write-Host ""
+        Write-Host "Nome do cliente não informado." -ForegroundColor Red
+
+        Pausar
+        return
+    }
+
+    Executar-Diagnostico `
+        -Cliente $NomeCliente `
+        -TipoCliente "Cliente Novo"
+}
+
+# ============================================================
+# EXECUTA O DIAGNÓSTICO
+# ============================================================
+
+function Executar-Diagnostico {
+
+    param(
+        [string]$Cliente,
+        [string]$TipoCliente
+    )
+
+    Clear-Host
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "                 DIAGNÓSTICO PREVENTIVO" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    Write-Host "Cliente : " -NoNewline
+    Write-Host $Cliente -ForegroundColor Yellow
+
+    Write-Host "Tipo    : " -NoNewline
+    Write-Host $TipoCliente -ForegroundColor Yellow
+
+    Write-Host "Computador: " -NoNewline
+    Write-Host $env:COMPUTERNAME -ForegroundColor Yellow
+
+    Write-Host ""
+
+    Write-Host "Iniciando módulo de diagnóstico..." -ForegroundColor Cyan
+    Write-Host ""
+
+    # --------------------------------------------------------
+    # LOCALIZA O MANUTENCAO.PS1
+    # --------------------------------------------------------
+
+    if (!(Test-Path $ModuloManutencao)) {
+
+        Write-Host ""
+        Write-Host "ERRO: manutencao.ps1 não foi encontrado." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Caminho esperado:" -ForegroundColor Gray
+        Write-Host $ModuloManutencao -ForegroundColor Yellow
+
+        Pausar
+        return
+    }
+
+    # --------------------------------------------------------
+    # EXECUTA O DIAGNÓSTICO
+    # --------------------------------------------------------
+
+    try {
+
+        & $ModuloManutencao
+
+    }
+    catch {
+
+        Write-Host ""
+        Write-Host "ERRO AO EXECUTAR DIAGNÓSTICO" -ForegroundColor Red
+        Write-Host ""
+
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+
+        Write-Host ""
+
+        Pausar
+    }
+}
+
+# ============================================================
+# MENU DIAGNÓSTICO
+# ============================================================
+
+function Menu-Diagnostico {
+
+    while ($true) {
+
+        Clear-Host
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "                 DIAGNÓSTICO LR TECNOLOGIA" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host ""
+
+        Write-Host "1 - Cliente Existente" -ForegroundColor White
+        Write-Host "2 - Cliente Novo" -ForegroundColor White
+        Write-Host ""
+        Write-Host "0 - Voltar" -ForegroundColor Gray
+        Write-Host ""
+
+        $Opcao = Read-Host "Selecione uma opção"
+
+        switch ($Opcao) {
+
+            "1" {
+                Menu-ClienteExistente
+            }
+
+            "2" {
+                Diagnostico-ClienteNovo
+            }
+
+            "0" {
+                return
+            }
+
+            default {
+                Write-Host ""
+                Write-Host "Opção inválida." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# MENU PRINCIPAL
+# ============================================================
 
 while ($true) {
 
     Clear-Host
 
     Write-Host ""
-    Write-Host "============================================" -ForegroundColor Cyan
-    Write-Host "             LR TECNOLOGIA" -ForegroundColor Cyan
-    Write-Host "          ASSISTENTE TECNICO" -ForegroundColor Cyan
-    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "                 ROBÔ LR TECNOLOGIA" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "1 - Instalacao de Programas"
-    Write-Host "2 - Instalar Office"
-    Write-Host "3 - Diagnostico"
-    Write-Host "0 - Sair"
+    Write-Host "                    MENU PRINCIPAL" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "Escolha uma opcao:" -ForegroundColor Yellow
 
-    # ========================================================
-    # LE UMA TECLA SEM PRECISAR PRESSIONAR ENTER
-    # ========================================================
+    Write-Host "1 - Manutenção" -ForegroundColor White
+    Write-Host "2 - Personalização" -ForegroundColor White
+    Write-Host "3 - Programas" -ForegroundColor White
+    Write-Host "4 - Office" -ForegroundColor White
+    Write-Host "5 - Diagnóstico" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "0 - Sair" -ForegroundColor Gray
+    Write-Host ""
 
-    $Tecla = [System.Console]::ReadKey($true)
+    $Opcao = Read-Host "Selecione uma opção"
 
-    switch ($Tecla.KeyChar) {
+    switch ($Opcao) {
 
-        # ====================================================
-        # 1 - PROGRAMAS
-        # ====================================================
+        # ----------------------------------------------------
+        # MANUTENÇÃO
+        # ----------------------------------------------------
 
         "1" {
 
-            Clear-Host
-
-            Write-Host ""
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host "       INSTALACAO DE PROGRAMAS" -ForegroundColor Cyan
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host ""
-
-            $UrlProgramas = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/programas.ps1"
-
-            try {
-
-                Write-Host "Carregando modulo de programas..." -ForegroundColor Yellow
-                Write-Host ""
-
-                $ScriptProgramas = Invoke-RestMethod `
-                    -Uri $UrlProgramas `
-                    -ErrorAction Stop
-
-                Invoke-Expression $ScriptProgramas
-
-            }
-            catch {
-
-                Write-Host ""
-                Write-Host "ERRO AO CARREGAR O MODULO DE PROGRAMAS." -ForegroundColor Red
-                Write-Host ""
-                Write-Host $_.Exception.Message -ForegroundColor Red
-                Write-Host ""
-            }
-
-            Write-Host ""
-            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-            [System.Console]::ReadKey($true) | Out-Null
+            Executar-Modulo `
+                -Arquivo $ModuloManutencao `
+                -Nome "Manutenção"
         }
 
-        # ====================================================
-        # 2 - OFFICE
-        # ====================================================
+        # ----------------------------------------------------
+        # PERSONALIZAÇÃO
+        # ----------------------------------------------------
 
         "2" {
 
-            Clear-Host
-
-            Write-Host ""
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host "             INSTALAR OFFICE" -ForegroundColor Cyan
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host ""
-
-            Write-Host "Carregando modulo do Office..." -ForegroundColor Yellow
-            Write-Host ""
-
-            # ------------------------------------------------
-            # URL DO OFFICE
-            # ------------------------------------------------
-
-            $UrlOffice = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/office.ps1"
-
-            try {
-
-                $ScriptOffice = Invoke-RestMethod `
-                    -Uri $UrlOffice `
-                    -ErrorAction Stop
-
-                Invoke-Expression $ScriptOffice
-
-            }
-            catch {
-
-                Write-Host ""
-                Write-Host "ERRO AO CARREGAR O MODULO DO OFFICE." -ForegroundColor Red
-                Write-Host ""
-                Write-Host $_.Exception.Message -ForegroundColor Red
-                Write-Host ""
-            }
-
-            Write-Host ""
-            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-            [System.Console]::ReadKey($true) | Out-Null
+            Executar-Modulo `
+                -Arquivo $ModuloPersonalizacao `
+                -Nome "Personalização"
         }
 
-        # ====================================================
-        # 3 - DIAGNOSTICO
-        # ====================================================
+        # ----------------------------------------------------
+        # PROGRAMAS
+        # ----------------------------------------------------
 
         "3" {
 
-            Clear-Host
-
-            Write-Host ""
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host "          DIAGNOSTICO PREVENTIVO" -ForegroundColor Cyan
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host ""
-
-            Write-Host "Carregando modulo de diagnostico..." -ForegroundColor Yellow
-            Write-Host ""
-
-            # ------------------------------------------------
-            # URL DO MODULO DE DIAGNOSTICO
-            # ------------------------------------------------
-
-            $UrlDiagnostico = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/manutencao.ps1"
-
-            try {
-
-                $ScriptDiagnostico = Invoke-RestMethod `
-                    -Uri $UrlDiagnostico `
-                    -ErrorAction Stop
-
-                Invoke-Expression $ScriptDiagnostico
-
-            }
-            catch {
-
-                Write-Host ""
-                Write-Host "ERRO AO CARREGAR O MODULO DE DIAGNOSTICO." -ForegroundColor Red
-                Write-Host ""
-                Write-Host $_.Exception.Message -ForegroundColor Red
-                Write-Host ""
-            }
-
-            Write-Host ""
-            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-            [System.Console]::ReadKey($true) | Out-Null
+            Executar-Modulo `
+                -Arquivo $ModuloProgramas `
+                -Nome "Programas"
         }
 
-        # ====================================================
-        # 0 - SAIR
-        # ====================================================
+        # ----------------------------------------------------
+        # OFFICE
+        # ----------------------------------------------------
+
+        "4" {
+
+            Executar-Modulo `
+                -Arquivo $ModuloOffice `
+                -Nome "Office"
+        }
+
+        # ----------------------------------------------------
+        # DIAGNÓSTICO
+        # ----------------------------------------------------
+
+        "5" {
+
+            Menu-Diagnostico
+        }
+
+        # ----------------------------------------------------
+        # SAIR
+        # ----------------------------------------------------
 
         "0" {
 
             Clear-Host
 
             Write-Host ""
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host "        ENCERRANDO LR TECNOLOGIA" -ForegroundColor Cyan
-            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host "Robô LR Tecnologia encerrado." -ForegroundColor Cyan
             Write-Host ""
 
-            Write-Host "Até logo!" -ForegroundColor Green
-            Write-Host ""
-
-            # Sai do WHILE principal.
-            # O break dentro do switch não era suficiente
-            # para encerrar o menu corretamente.
-            return
+            exit
         }
-
-        # ====================================================
-        # TECLA INVALIDA
-        # ====================================================
 
         default {
 
-            # Ignora qualquer tecla diferente de
-            # 1, 2, 3 ou 0.
+            Write-Host ""
+            Write-Host "Opção inválida." -ForegroundColor Red
+
+            Start-Sleep -Seconds 1
         }
     }
 }
