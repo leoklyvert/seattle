@@ -14,53 +14,90 @@ while ($true) {
     Write-Host "============================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "1 - Instalacao de Programas"
-    Write-Host "2 - Office"
+    Write-Host "2 - Instalar Office"
     Write-Host "0 - Sair"
     Write-Host ""
+    Write-Host "Escolha uma opcao:" -ForegroundColor Yellow
 
-    $opcao = Read-Host "Escolha uma opcao"
+    # Aguarda apenas uma tecla.
+    # Nao precisa pressionar ENTER.
+    $Tecla = [System.Console]::ReadKey($true)
 
-    switch ($opcao) {
+    switch ($Tecla.KeyChar) {
 
         "1" {
+
+            Clear-Host
+
             Write-Host ""
-            Write-Host "Iniciando instalacao de programas..." -ForegroundColor Yellow
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host "       INSTALACAO DE PROGRAMAS" -ForegroundColor Cyan
+            Write-Host "============================================" -ForegroundColor Cyan
             Write-Host ""
 
-            $urlProgramas = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/programas.ps1"
+            $UrlProgramas = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/programas.ps1"
 
             try {
-                $script = Invoke-RestMethod -Uri $urlProgramas -ErrorAction Stop
-                Invoke-Expression $script
+
+                $ScriptProgramas = Invoke-RestMethod `
+                    -Uri $UrlProgramas `
+                    -ErrorAction Stop
+
+                Invoke-Expression $ScriptProgramas
+
             }
             catch {
+
                 Write-Host ""
-                Write-Host "ERRO ao carregar o modulo de programas." -ForegroundColor Red
+                Write-Host "ERRO AO CARREGAR O MODULO DE PROGRAMAS." -ForegroundColor Red
+                Write-Host ""
                 Write-Host $_.Exception.Message -ForegroundColor Red
+                Write-Host ""
             }
 
             Write-Host ""
-            Read-Host "Pressione ENTER para voltar ao menu"
+            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
+            [System.Console]::ReadKey($true) | Out-Null
         }
 
         "2" {
+
+            Clear-Host
+
             Write-Host ""
-            Write-Host "Modulo Office ainda nao configurado." -ForegroundColor Yellow
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host "             INSTALAR OFFICE" -ForegroundColor Cyan
+            Write-Host "============================================" -ForegroundColor Cyan
             Write-Host ""
-            Read-Host "Pressione ENTER para voltar ao menu"
+
+            Write-Host "Carregando modulo do Office..." -ForegroundColor Yellow
+            Write-Host ""
+
+            # URL temporaria do modulo Office.
+            # Será ajustada quando o arquivo office.ps1
+            # estiver publicado no GitHub.
+            Write-Host "Modulo Office ainda nao publicado no GitHub." -ForegroundColor Yellow
+            Write-Host ""
+
+            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
+            [System.Console]::ReadKey($true) | Out-Null
         }
 
         "0" {
+
+            Clear-Host
+
             Write-Host ""
             Write-Host "Encerrando LR Tecnologia..." -ForegroundColor Cyan
             Write-Host ""
+
             break
         }
 
         default {
-            Write-Host ""
-            Write-Host "Opcao invalida." -ForegroundColor Red
-            Start-Sleep -Seconds 2
+
+            # Tecla diferente de 1, 2 ou 0:
+            # simplesmente ignora.
         }
     }
 }
