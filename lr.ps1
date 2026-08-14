@@ -1,3 +1,80 @@
+Skip to content
+leoklyvert
+seattle
+Repository navigation
+Code
+Issues
+Pull requests
+Agents
+Actions
+Projects
+Security and quality
+Insights
+Settings
+Files
+Go to file
+t
+T
+README.md
+lr.ps1
+office.ps1
+personalizacao.ps1
+programas.ps1
+seattle
+/
+lr.ps1
+in
+main
+
+Edit
+
+Preview
+Indent mode
+
+Spaces
+Indent size
+
+4
+Line wrap mode
+
+No wrap
+Editing lr.ps1 file contents
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+ 10
+ 11
+ 12
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
+ 21
+ 22
+ 23
+ 24
+ 25
+ 26
+ 27
+ 28
+ 29
+ 30
+ 31
+ 32
+ 33
+ 34
+ 35
+ 36
 # ============================================================
 # LR TECNOLOGIA
 # Assistente Técnico
@@ -34,85 +111,5 @@ while ($true) {
             Write-Host "       INSTALACAO DE PROGRAMAS" -ForegroundColor Cyan
             Write-Host "============================================" -ForegroundColor Cyan
             Write-Host ""
-
-            $UrlProgramas = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/programas.ps1"
-
-            try {
-
-                $ScriptProgramas = Invoke-RestMethod `
-                    -Uri $UrlProgramas `
-                    -ErrorAction Stop
-
-                Invoke-Expression $ScriptProgramas
-
-            }
-            catch {
-
-                Write-Host ""
-                Write-Host "ERRO AO CARREGAR O MODULO DE PROGRAMAS." -ForegroundColor Red
-                Write-Host ""
-                Write-Host $_.Exception.Message -ForegroundColor Red
-                Write-Host ""
-            }
-
-            Write-Host ""
-            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-            [System.Console]::ReadKey($true) | Out-Null
-        }
-
-        "2" {
-
-    Clear-Host
-
-    Write-Host ""
-    Write-Host "============================================" -ForegroundColor Cyan
-    Write-Host "             INSTALAR OFFICE" -ForegroundColor Cyan
-    Write-Host "============================================" -ForegroundColor Cyan
-    Write-Host ""
-
-    $UrlOfficeScript = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/office.ps1"
-
-    try {
-
-        Write-Host "Carregando modulo do Office..." -ForegroundColor Yellow
-        Write-Host ""
-
-        $ScriptOffice = Invoke-RestMethod `
-            -Uri $UrlOfficeScript `
-            -ErrorAction Stop
-
-        Invoke-Expression $ScriptOffice
-
-    }
-    catch {
-
-        Write-Host ""
-        Write-Host "ERRO AO CARREGAR O MODULO DO OFFICE." -ForegroundColor Red
-        Write-Host ""
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        Write-Host ""
-    }
-
-    Write-Host ""
-    Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-    [System.Console]::ReadKey($true) | Out-Null
-}
-
-        "0" {
-
-            Clear-Host
-
-            Write-Host ""
-            Write-Host "Encerrando LR Tecnologia..." -ForegroundColor Cyan
-            Write-Host ""
-
-            break
-        }
-
-        default {
-
-            # Tecla diferente de 1, 2 ou 0:
-            # simplesmente ignora.
-        }
-    }
-}
+Use Control + Shift + m to toggle the tab key moving focus. Alternatively, use esc then tab to move to the next interactive element on the page.
+ 
