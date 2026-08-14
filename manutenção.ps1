@@ -13,6 +13,10 @@
 #
 # Os dados são enviados diretamente para a HostGator.
 # ============================================================
+param(
+    [string]$Cliente = "Não informado",
+    [string]$TipoCliente = "Não informado"
+)
 
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -413,6 +417,10 @@ foreach ($DF in $DiscosFisicos) {
 $Objeto = [PSCustomObject]@{
 
     data = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+    cliente = $Cliente
+
+    tipo_cliente = $TipoCliente
 
     computador = $Computador
 
