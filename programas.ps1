@@ -25,9 +25,8 @@ winget install --id=9NKSQGP7F2NH --source=msstore --exact --accept-package-agree
 Write-Host "[2/13] Instalando VLC Media Player..." -ForegroundColor White
 winget install --id=VideoLAN.VLC --source=winget --exact --silent --accept-package-agreements --accept-source-agreements
 
-# Avast Free Antivirus
-Write-Host "[3/13] Instalando Avast Free Antivirus..." -ForegroundColor White
-winget install --id=Avast.AvastFreeAntivirus --source=winget --exact --accept-package-agreements --accept-source-agreements
+# Instalar Avast Free Antivirus
+winget install --id Avast.AvastFreeAntivirus --source winget --exact --silent --accept-package-agreements --accept-source-agreements
 
 # CPUID HWMonitor
 Write-Host "[4/13] Instalando CPUID HWMonitor..." -ForegroundColor White
