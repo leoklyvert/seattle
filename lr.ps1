@@ -62,26 +62,41 @@ while ($true) {
 
         "2" {
 
-            Clear-Host
+    Clear-Host
 
-            Write-Host ""
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host "             INSTALAR OFFICE" -ForegroundColor Cyan
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host ""
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host "             INSTALAR OFFICE" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host ""
 
-            Write-Host "Carregando modulo do Office..." -ForegroundColor Yellow
-            Write-Host ""
+    $UrlOfficeScript = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/office.ps1"
 
-            # URL temporaria do modulo Office.
-            # Será ajustada quando o arquivo office.ps1
-            # estiver publicado no GitHub.
-            Write-Host "Modulo Office ainda nao publicado no GitHub." -ForegroundColor Yellow
-            Write-Host ""
+    try {
 
-            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-            [System.Console]::ReadKey($true) | Out-Null
-        }
+        Write-Host "Carregando modulo do Office..." -ForegroundColor Yellow
+        Write-Host ""
+
+        $ScriptOffice = Invoke-RestMethod `
+            -Uri $UrlOfficeScript `
+            -ErrorAction Stop
+
+        Invoke-Expression $ScriptOffice
+
+    }
+    catch {
+
+        Write-Host ""
+        Write-Host "ERRO AO CARREGAR O MODULO DO OFFICE." -ForegroundColor Red
+        Write-Host ""
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        Write-Host ""
+    }
+
+    Write-Host ""
+    Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
+    [System.Console]::ReadKey($true) | Out-Null
+}
 
         "0" {
 
