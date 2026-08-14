@@ -1,160 +1,207 @@
 # ============================================================
 # LR TECNOLOGIA
-# ASSISTENTE TÉCNICO
-# Versão: 1.2.0
+# Assistente Técnico
+# Versão 1.2.0
 # ============================================================
 
 Clear-Host
 
-# ============================================================
-# CONFIGURAÇÕES
-# ============================================================
-
-$BaseURL = "https://github.com/leoklyvert/seattle/raw/refs/heads/main"
-
-$UrlProgramas = "$BaseURL/programas.ps1"
-$UrlOffice = "$BaseURL/office.ps1"
-$UrlPersonalizacao = "$BaseURL/personalizacao.ps1"
-
-# ============================================================
-# FUNÇÃO - EXECUTAR MÓDULO
-# ============================================================
-
-function Executar-Modulo {
-
-    param (
-        [string]$NomeModulo,
-        [string]$UrlModulo
-    )
-
-    Clear-Host
-
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "                  LR TECNOLOGIA" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Modulo: $NomeModulo" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Carregando modulo..." -ForegroundColor Cyan
-    Write-Host ""
-
-    try {
-
-        # Baixa o conteúdo do script
-        $Script = Invoke-RestMethod `
-            -Uri $UrlModulo `
-            -UseBasicParsing `
-            -ErrorAction Stop
-
-        if ([string]::IsNullOrWhiteSpace($Script)) {
-
-            throw "O arquivo retornado pelo GitHub está vazio."
-        }
-
-        Write-Host "Modulo carregado com sucesso." -ForegroundColor Green
-        Write-Host ""
-        Write-Host "Iniciando..." -ForegroundColor Cyan
-        Write-Host ""
-
-        # Executa o conteúdo recebido
-        Invoke-Expression $Script
-
-    }
-    catch {
-
-        Write-Host ""
-        Write-Host "============================================================" -ForegroundColor Red
-        Write-Host "ERRO AO EXECUTAR O MODULO" -ForegroundColor Red
-        Write-Host "============================================================" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "Modulo: $NomeModulo" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        Write-Host ""
-    }
-}
-
-# ============================================================
-# MENU PRINCIPAL
-# ============================================================
-
 while ($true) {
 
-    Clear-Host
-
     Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "                       LR TECNOLOGIA" -ForegroundColor Cyan
-    Write-Host "                    ASSISTENTE TECNICO" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host "             LR TECNOLOGIA" -ForegroundColor Cyan
+    Write-Host "          ASSISTENTE TECNICO" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "1 - Instalacao de Programas" -ForegroundColor White
-    Write-Host "2 - Instalar Office" -ForegroundColor White
-    Write-Host "3 - Personalizacao" -ForegroundColor White
-    Write-Host "0 - Sair" -ForegroundColor White
+    Write-Host "1 - Instalacao de Programas"
+    Write-Host "2 - Instalar Office"
+    Write-Host "3 - Personalizacao"
+    Write-Host "4 - Diagnostico"
+    Write-Host "0 - Sair"
     Write-Host ""
     Write-Host "Escolha uma opcao:" -ForegroundColor Yellow
 
-    # ========================================================
-    # LÊ UMA ÚNICA TECLA
-    # Não precisa pressionar ENTER
-    # ========================================================
-
+    # Aguarda somente uma tecla.
+    # Não é necessário pressionar ENTER.
     $Tecla = [System.Console]::ReadKey($true)
 
     switch ($Tecla.KeyChar) {
 
         # ====================================================
-        # OPÇÃO 1 - PROGRAMAS
+        # 1 - PROGRAMAS
         # ====================================================
 
         "1" {
 
-            Executar-Modulo `
-                -NomeModulo "Instalacao de Programas" `
-                -UrlModulo $UrlProgramas
+            Clear-Host
+
+            Write-Host ""
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host "       INSTALACAO DE PROGRAMAS" -ForegroundColor Cyan
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host ""
+
+            $UrlProgramas = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/programas.ps1"
+
+            try {
+
+                Write-Host "Carregando modulo de programas..." -ForegroundColor Yellow
+                Write-Host ""
+
+                $ScriptProgramas = Invoke-RestMethod `
+                    -Uri $UrlProgramas `
+                    -ErrorAction Stop
+
+                Invoke-Expression $ScriptProgramas
+
+            }
+            catch {
+
+                Write-Host ""
+                Write-Host "ERRO AO CARREGAR O MODULO DE PROGRAMAS." -ForegroundColor Red
+                Write-Host ""
+                Write-Host $_.Exception.Message -ForegroundColor Red
+                Write-Host ""
+            }
 
             Write-Host ""
             Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-
             [System.Console]::ReadKey($true) | Out-Null
         }
 
+
         # ====================================================
-        # OPÇÃO 2 - OFFICE
+        # 2 - OFFICE
         # ====================================================
 
         "2" {
 
-            Executar-Modulo `
-                -NomeModulo "Instalacao do Office" `
-                -UrlModulo $UrlOffice
+            Clear-Host
+
+            Write-Host ""
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host "             INSTALAR OFFICE" -ForegroundColor Cyan
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host ""
+
+            $UrlOffice = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/office.ps1"
+
+            try {
+
+                Write-Host "Carregando modulo do Office..." -ForegroundColor Yellow
+                Write-Host ""
+
+                $ScriptOffice = Invoke-RestMethod `
+                    -Uri $UrlOffice `
+                    -ErrorAction Stop
+
+                Invoke-Expression $ScriptOffice
+
+            }
+            catch {
+
+                Write-Host ""
+                Write-Host "ERRO AO CARREGAR O MODULO DO OFFICE." -ForegroundColor Red
+                Write-Host ""
+                Write-Host $_.Exception.Message -ForegroundColor Red
+                Write-Host ""
+            }
 
             Write-Host ""
             Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-
             [System.Console]::ReadKey($true) | Out-Null
         }
 
+
         # ====================================================
-        # OPÇÃO 3 - PERSONALIZAÇÃO
+        # 3 - PERSONALIZACAO
         # ====================================================
 
         "3" {
 
-            Executar-Modulo `
-                -NomeModulo "Personalizacao" `
-                -UrlModulo $UrlPersonalizacao
+            Clear-Host
+
+            Write-Host ""
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host "              PERSONALIZACAO" -ForegroundColor Cyan
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host ""
+
+            $UrlPersonalizacao = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/personalizacao.ps1"
+
+            try {
+
+                Write-Host "Carregando modulo de personalizacao..." -ForegroundColor Yellow
+                Write-Host ""
+
+                $ScriptPersonalizacao = Invoke-RestMethod `
+                    -Uri $UrlPersonalizacao `
+                    -ErrorAction Stop
+
+                Invoke-Expression $ScriptPersonalizacao
+
+            }
+            catch {
+
+                Write-Host ""
+                Write-Host "ERRO AO CARREGAR O MODULO DE PERSONALIZACAO." -ForegroundColor Red
+                Write-Host ""
+                Write-Host $_.Exception.Message -ForegroundColor Red
+                Write-Host ""
+            }
 
             Write-Host ""
             Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-
             [System.Console]::ReadKey($true) | Out-Null
         }
 
+
         # ====================================================
-        # OPÇÃO 0 - SAIR
+        # 4 - DIAGNOSTICO
+        # ====================================================
+
+        "4" {
+
+            Clear-Host
+
+            Write-Host ""
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host "                DIAGNOSTICO" -ForegroundColor Cyan
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host ""
+
+            $UrlDiagnostico = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/diagnostico.ps1"
+
+            try {
+
+                Write-Host "Carregando modulo de diagnostico..." -ForegroundColor Yellow
+                Write-Host ""
+
+                $ScriptDiagnostico = Invoke-RestMethod `
+                    -Uri $UrlDiagnostico `
+                    -ErrorAction Stop
+
+                Invoke-Expression $ScriptDiagnostico
+
+            }
+            catch {
+
+                Write-Host ""
+                Write-Host "ERRO AO CARREGAR O MODULO DE DIAGNOSTICO." -ForegroundColor Red
+                Write-Host ""
+                Write-Host $_.Exception.Message -ForegroundColor Red
+                Write-Host ""
+            }
+
+            Write-Host ""
+            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
+            [System.Console]::ReadKey($true) | Out-Null
+        }
+
+
+        # ====================================================
+        # 0 - SAIR
         # ====================================================
 
         "0" {
@@ -162,32 +209,20 @@ while ($true) {
             Clear-Host
 
             Write-Host ""
-            Write-Host "============================================================" -ForegroundColor Cyan
-            Write-Host "              ENCERRANDO LR TECNOLOGIA" -ForegroundColor Cyan
-            Write-Host "============================================================" -ForegroundColor Cyan
+            Write-Host "Encerrando LR Tecnologia..." -ForegroundColor Cyan
             Write-Host ""
 
-            Start-Sleep -Seconds 1
-
-            # Sai do while
-            break
+            return
         }
 
+
         # ====================================================
-        # OUTRAS TECLAS
+        # TECLA INVALIDA
         # ====================================================
 
         default {
 
             # Ignora qualquer outra tecla.
         }
-    }
-
-    # ========================================================
-    # GARANTE QUE O LOOP NÃO CONTINUE APÓS O 0
-    # ========================================================
-
-    if ($Tecla.KeyChar -eq "0") {
-        break
     }
 }
