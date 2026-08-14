@@ -202,22 +202,15 @@ Write-Host ""
 Write-Host "3/8 - Configurando energia e desempenho..." -ForegroundColor Yellow
 Write-Host ""
 
-# Cria o plano Desempenho Máximo, caso ainda não exista.
 powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>$null
 
-# Desativa desligamento automático do monitor.
 powercfg /change monitor-timeout-ac 0
 powercfg /change monitor-timeout-dc 0
-
-# Desativa desligamento automático do disco.
 powercfg /change disk-timeout-ac 0
 powercfg /change disk-timeout-dc 0
-
-# Desativa suspensão automática.
 powercfg /change standby-timeout-ac 0
 powercfg /change standby-timeout-dc 0
 
-# Desativa hibernação.
 powercfg.exe /hibernate off
 
 Write-Host "Configuração de energia concluída." -ForegroundColor Green
@@ -277,10 +270,6 @@ Write-Host "5/8 - Configurando sincronização de horário..." -ForegroundColor 
 Write-Host ""
 
 $NTPServers = "a.st1.ntp.br c.st1.ntp.br d.st1.ntp.br e.st1.ntp.br"
-
-Write-Host "Servidores NTP:" -ForegroundColor Cyan
-Write-Host $NTPServers
-Write-Host ""
 
 w32tm /config `
     /manualpeerlist:"$NTPServers" `
