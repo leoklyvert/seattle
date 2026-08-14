@@ -1,12 +1,14 @@
 # ============================================================
 # LR TECNOLOGIA
 # Assistente Técnico
-# Versão 1.2.0
+# Versão 1.4.0
 # ============================================================
 
 Clear-Host
 
 while ($true) {
+
+    Clear-Host
 
     Write-Host ""
     Write-Host "============================================" -ForegroundColor Cyan
@@ -16,14 +18,15 @@ while ($true) {
     Write-Host ""
     Write-Host "1 - Instalacao de Programas"
     Write-Host "2 - Instalar Office"
-    Write-Host "3 - Personalizacao"
-    Write-Host "4 - Diagnostico"
+    Write-Host "3 - Diagnostico"
     Write-Host "0 - Sair"
     Write-Host ""
     Write-Host "Escolha uma opcao:" -ForegroundColor Yellow
 
-    # Aguarda somente uma tecla.
-    # Não é necessário pressionar ENTER.
+    # ========================================================
+    # LE UMA TECLA SEM PRECISAR PRESSIONAR ENTER
+    # ========================================================
+
     $Tecla = [System.Console]::ReadKey($true)
 
     switch ($Tecla.KeyChar) {
@@ -70,7 +73,6 @@ while ($true) {
             [System.Console]::ReadKey($true) | Out-Null
         }
 
-
         # ====================================================
         # 2 - OFFICE
         # ====================================================
@@ -85,12 +87,16 @@ while ($true) {
             Write-Host "============================================" -ForegroundColor Cyan
             Write-Host ""
 
+            Write-Host "Carregando modulo do Office..." -ForegroundColor Yellow
+            Write-Host ""
+
+            # ------------------------------------------------
+            # URL DO OFFICE
+            # ------------------------------------------------
+
             $UrlOffice = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/office.ps1"
 
             try {
-
-                Write-Host "Carregando modulo do Office..." -ForegroundColor Yellow
-                Write-Host ""
 
                 $ScriptOffice = Invoke-RestMethod `
                     -Uri $UrlOffice `
@@ -113,9 +119,8 @@ while ($true) {
             [System.Console]::ReadKey($true) | Out-Null
         }
 
-
         # ====================================================
-        # 3 - PERSONALIZACAO
+        # 3 - DIAGNOSTICO
         # ====================================================
 
         "3" {
@@ -124,59 +129,20 @@ while ($true) {
 
             Write-Host ""
             Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host "              PERSONALIZACAO" -ForegroundColor Cyan
+            Write-Host "          DIAGNOSTICO PREVENTIVO" -ForegroundColor Cyan
             Write-Host "============================================" -ForegroundColor Cyan
             Write-Host ""
 
-            $UrlPersonalizacao = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/personalizacao.ps1"
+            Write-Host "Carregando modulo de diagnostico..." -ForegroundColor Yellow
+            Write-Host ""
+
+            # ------------------------------------------------
+            # URL DO MODULO DE DIAGNOSTICO
+            # ------------------------------------------------
+
+            $UrlDiagnostico = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/manutencao.ps1"
 
             try {
-
-                Write-Host "Carregando modulo de personalizacao..." -ForegroundColor Yellow
-                Write-Host ""
-
-                $ScriptPersonalizacao = Invoke-RestMethod `
-                    -Uri $UrlPersonalizacao `
-                    -ErrorAction Stop
-
-                Invoke-Expression $ScriptPersonalizacao
-
-            }
-            catch {
-
-                Write-Host ""
-                Write-Host "ERRO AO CARREGAR O MODULO DE PERSONALIZACAO." -ForegroundColor Red
-                Write-Host ""
-                Write-Host $_.Exception.Message -ForegroundColor Red
-                Write-Host ""
-            }
-
-            Write-Host ""
-            Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor Yellow
-            [System.Console]::ReadKey($true) | Out-Null
-        }
-
-
-        # ====================================================
-        # 4 - DIAGNOSTICO
-        # ====================================================
-
-        "4" {
-
-            Clear-Host
-
-            Write-Host ""
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host "                DIAGNOSTICO" -ForegroundColor Cyan
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host ""
-
-            $UrlDiagnostico = "https://github.com/leoklyvert/seattle/raw/refs/heads/main/diagnostico.ps1"
-
-            try {
-
-                Write-Host "Carregando modulo de diagnostico..." -ForegroundColor Yellow
-                Write-Host ""
 
                 $ScriptDiagnostico = Invoke-RestMethod `
                     -Uri $UrlDiagnostico `
@@ -199,7 +165,6 @@ while ($true) {
             [System.Console]::ReadKey($true) | Out-Null
         }
 
-
         # ====================================================
         # 0 - SAIR
         # ====================================================
@@ -209,12 +174,19 @@ while ($true) {
             Clear-Host
 
             Write-Host ""
-            Write-Host "Encerrando LR Tecnologia..." -ForegroundColor Cyan
+            Write-Host "============================================" -ForegroundColor Cyan
+            Write-Host "        ENCERRANDO LR TECNOLOGIA" -ForegroundColor Cyan
+            Write-Host "============================================" -ForegroundColor Cyan
             Write-Host ""
 
+            Write-Host "Até logo!" -ForegroundColor Green
+            Write-Host ""
+
+            # Sai do WHILE principal.
+            # O break dentro do switch não era suficiente
+            # para encerrar o menu corretamente.
             return
         }
-
 
         # ====================================================
         # TECLA INVALIDA
@@ -222,7 +194,8 @@ while ($true) {
 
         default {
 
-            # Ignora qualquer outra tecla.
+            # Ignora qualquer tecla diferente de
+            # 1, 2, 3 ou 0.
         }
     }
 }
