@@ -1,47 +1,58 @@
-```powershell
 # ============================================================
 # ROBÔ LR TECNOLOGIA
 # Criado e desenvolvido por Leonardo M. Batista.
 # ============================================================
-# MENU PRINCIPAL
+# Menu principal
 #
+# Versão: 1.4.0
+#
+# Módulos:
 # 1 - Manutenção
 # 2 - Personalização
 # 3 - Programas
 # 4 - Office
 # 5 - Diagnóstico
+#
+# Compatível com execução:
+#
+# irm "https://github.com/leoklyvert/seattle/raw/refs/heads/main/lr.ps1" | iex
+#
 # ============================================================
 
 $ErrorActionPreference = "Stop"
 
 # ============================================================
-# GITHUB
+# CONFIGURAÇÃO GITHUB
 # ============================================================
 
-$GitHubBase = "https://github.com/leoklyvert/seattle/raw/refs/heads/main"
-
-$UrlManutencao     = "$GitHubBase/manutencao.ps1"
-$UrlPersonalizacao = "$GitHubBase/personalizacao.ps1"
-$UrlProgramas      = "$GitHubBase/programas.ps1"
-$UrlOffice         = "$GitHubBase/office.ps1"
+$GitHubBase = "https://raw.githubusercontent.com/leoklyvert/seattle/main"
 
 # ============================================================
-# PASTA TEMPORÁRIA
+# PASTA TEMPORÁRIA DO ROBÔ
 # ============================================================
 
-$PastaTemp = Join-Path $env:TEMP "LR-Tecnologia"
+$PastaBase = Join-Path $env:TEMP "LR-Tecnologia"
 
-if (!(Test-Path $PastaTemp)) {
+if (!(Test-Path $PastaBase)) {
 
     New-Item `
-        -Path $PastaTemp `
+        -Path $PastaBase `
         -ItemType Directory `
         -Force |
         Out-Null
 }
 
 # ============================================================
-# PAUSA
+# ARQUIVOS DOS MÓDULOS
+# ============================================================
+
+$ModuloManutencao     = Join-Path $PastaBase "manutencao.ps1"
+$ModuloPersonalizacao = Join-Path $PastaBase "personalizacao.ps1"
+$ModuloProgramas      = Join-Path $PastaBase "programas.ps1"
+$ModuloOffice         = Join-Path $PastaBase "office.ps1"
+
+# ============================================================
+# FUNÇÃO - PAUSA
 # ============================================================
 
 function Pausar {
@@ -49,23 +60,26 @@ function Pausar {
     Write-Host ""
     Write-Host "Pressione ENTER para continuar..." -ForegroundColor Gray
 
-    Read-Host | Out-Null
+    Read-Host
 }
 
 # ============================================================
-# BAIXAR MÓDULO
+# FUNÇÃO - BAIXAR MÓDULO
 # ============================================================
 
 function Baixar-Modulo {
 
     param(
-        [string]$Url,
         [string]$NomeArquivo
     )
 
-    $Destino = Join-Path $PastaTemp $NomeArquivo
+    $Url = "$GitHubBase/$NomeArquivo"
+
+    $Destino = Join-Path $PastaBase $NomeArquivo
 
     try {
+
+        Write-Host "Atualizando módulo: $NomeArquivo" -ForegroundColor Gray
 
         Invoke-WebRequest `
             -Uri $Url `
@@ -75,7 +89,7 @@ function Baixar-Modulo {
 
         if (!(Test-Path $Destino)) {
 
-            throw "Arquivo não encontrado após o download."
+            throw "Arquivo não foi criado."
         }
 
         return $Destino
@@ -85,24 +99,36 @@ function Baixar-Modulo {
         Write-Host ""
         Write-Host "ERRO AO BAIXAR MÓDULO" -ForegroundColor Red
         Write-Host ""
-        Write-Host "Arquivo: $NomeArquivo" -ForegroundColor Yellow
-        Write-Host "URL: $Url" -ForegroundColor Gray
+        Write-Host "Arquivo : $NomeArquivo" -ForegroundColor Yellow
+        Write-Host "URL     : $Url" -ForegroundColor Gray
         Write-Host ""
-        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        Write-Host ""
 
         return $null
     }
 }
 
 # ============================================================
-# EXECUTAR MÓDULO
+# ATUALIZA MÓDULOS
+# ============================================================
+
+$ModuloManutencao = Baixar-Modulo "manutencao.ps1"
+
+$ModuloPersonalizacao = Baixar-Modulo "personalizacao.ps1"
+
+$ModuloProgramas = Baixar-Modulo "programas.ps1"
+
+$ModuloOffice = Baixar-Modulo "office.ps1"
+
+# ============================================================
+# FUNÇÃO - EXECUTAR MÓDULO
 # ============================================================
 
 function Executar-Modulo {
 
     param(
-        [string]$Url,
-        [string]$NomeArquivo,
+        [string]$Arquivo,
         [string]$Nome
     )
 
@@ -113,14 +139,19 @@ function Executar-Modulo {
     Write-Host "                 ROBÔ LR TECNOLOGIA" -ForegroundColor Cyan
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Iniciando $Nome..." -ForegroundColor Cyan
+
+    Write-Host "Módulo: " -NoNewline
+    Write-Host $Nome -ForegroundColor Yellow
+
     Write-Host ""
 
-    $Arquivo = Baixar-Modulo `
-        -Url $Url `
-        -NomeArquivo $NomeArquivo
+    if (!$Arquivo -or !(Test-Path $Arquivo)) {
 
-    if (!$Arquivo) {
+        Write-Host "ERRO: módulo não encontrado." -ForegroundColor Red
+        Write-Host ""
+
+        Write-Host "Arquivo:" -ForegroundColor Gray
+        Write-Host $Arquivo -ForegroundColor Yellow
 
         Pausar
         return
@@ -134,22 +165,27 @@ function Executar-Modulo {
     catch {
 
         Write-Host ""
-        Write-Host "ERRO AO EXECUTAR $Nome" -ForegroundColor Red
+        Write-Host "ERRO AO EXECUTAR MÓDULO" -ForegroundColor Red
         Write-Host ""
         Write-Host $_.Exception.Message -ForegroundColor Yellow
+        Write-Host ""
 
         Pausar
     }
 }
 
 # ============================================================
-# CLIENTES DE CONTRATO
+# CLIENTES COM CONTRATO
 # ============================================================
 
 $ClientesContrato = @(
+
     "A Casa do Panificador"
+
     "Escritório Real de Contabilidade"
+
     "Impacto Contabilidade"
+
     "Futura Contabilidade"
 )
 
@@ -182,25 +218,25 @@ function Executar-Diagnostico {
     Write-Host $env:COMPUTERNAME -ForegroundColor Yellow
 
     Write-Host ""
-    Write-Host "Baixando módulo de diagnóstico..." -ForegroundColor Cyan
-    Write-Host ""
 
-    $Arquivo = Baixar-Modulo `
-        -Url $UrlManutencao `
-        -NomeArquivo "manutencao_diagnostico.ps1"
+    if (!$ModuloManutencao -or !(Test-Path $ModuloManutencao)) {
 
-    if (!$Arquivo) {
+        Write-Host "ERRO: manutencao.ps1 não encontrado." -ForegroundColor Red
+        Write-Host ""
+
+        Write-Host "Caminho:" -ForegroundColor Gray
+        Write-Host $ModuloManutencao -ForegroundColor Yellow
 
         Pausar
         return
     }
 
-    Write-Host "Módulo carregado com sucesso." -ForegroundColor Green
+    Write-Host "Iniciando módulo de diagnóstico..." -ForegroundColor Cyan
     Write-Host ""
 
     try {
 
-        & $Arquivo `
+        & $ModuloManutencao `
             -Cliente $Cliente `
             -TipoCliente $TipoCliente
 
@@ -210,14 +246,17 @@ function Executar-Diagnostico {
         Write-Host ""
         Write-Host "ERRO AO EXECUTAR DIAGNÓSTICO" -ForegroundColor Red
         Write-Host ""
+
         Write-Host $_.Exception.Message -ForegroundColor Yellow
+
+        Write-Host ""
 
         Pausar
     }
 }
 
 # ============================================================
-# CLIENTE EXISTENTE
+# MENU - CLIENTE EXISTENTE
 # ============================================================
 
 function Menu-ClienteExistente {
@@ -234,8 +273,10 @@ function Menu-ClienteExistente {
 
         Write-Host "1 - Contrato Mensal" -ForegroundColor White
         Write-Host "2 - Sem Contrato / Particular" -ForegroundColor White
+
         Write-Host ""
         Write-Host "0 - Voltar" -ForegroundColor Gray
+
         Write-Host ""
 
         $Opcao = Read-Host "Selecione uma opção"
@@ -243,14 +284,17 @@ function Menu-ClienteExistente {
         switch ($Opcao) {
 
             "1" {
+
                 Menu-ContratoMensal
             }
 
             "2" {
+
                 Diagnostico-Particular
             }
 
             "0" {
+
                 return
             }
 
@@ -266,7 +310,7 @@ function Menu-ClienteExistente {
 }
 
 # ============================================================
-# CONTRATO MENSAL
+# MENU - CONTRATO MENSAL
 # ============================================================
 
 function Menu-ContratoMensal {
@@ -292,11 +336,13 @@ function Menu-ContratoMensal {
 
         Write-Host ""
         Write-Host "0 - Voltar" -ForegroundColor Gray
+
         Write-Host ""
 
         $Opcao = Read-Host "Selecione o cliente"
 
         if ($Opcao -eq "0") {
+
             return
         }
 
@@ -328,7 +374,7 @@ function Menu-ContratoMensal {
 }
 
 # ============================================================
-# PARTICULAR
+# DIAGNÓSTICO - PARTICULAR
 # ============================================================
 
 function Diagnostico-Particular {
@@ -358,7 +404,7 @@ function Diagnostico-Particular {
 }
 
 # ============================================================
-# CLIENTE NOVO
+# DIAGNÓSTICO - CLIENTE NOVO
 # ============================================================
 
 function Diagnostico-ClienteNovo {
@@ -368,6 +414,7 @@ function Diagnostico-ClienteNovo {
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host "                      CLIENTE NOVO" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
 
     $NomeCliente = Read-Host "Digite o nome do cliente"
@@ -404,8 +451,10 @@ function Menu-Diagnostico {
 
         Write-Host "1 - Cliente Existente" -ForegroundColor White
         Write-Host "2 - Cliente Novo" -ForegroundColor White
+
         Write-Host ""
         Write-Host "0 - Voltar" -ForegroundColor Gray
+
         Write-Host ""
 
         $Opcao = Read-Host "Selecione uma opção"
@@ -413,14 +462,17 @@ function Menu-Diagnostico {
         switch ($Opcao) {
 
             "1" {
+
                 Menu-ClienteExistente
             }
 
             "2" {
+
                 Diagnostico-ClienteNovo
             }
 
             "0" {
+
                 return
             }
 
@@ -448,16 +500,25 @@ while ($true) {
     Write-Host "                 ROBÔ LR TECNOLOGIA" -ForegroundColor Cyan
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
+
     Write-Host "                    MENU PRINCIPAL" -ForegroundColor Gray
+
     Write-Host ""
 
     Write-Host "1 - Manutenção" -ForegroundColor White
+
     Write-Host "2 - Personalização" -ForegroundColor White
+
     Write-Host "3 - Programas" -ForegroundColor White
+
     Write-Host "4 - Office" -ForegroundColor White
+
     Write-Host "5 - Diagnóstico" -ForegroundColor Green
+
     Write-Host ""
+
     Write-Host "0 - Sair" -ForegroundColor Gray
+
     Write-Host ""
 
     $Opcao = Read-Host "Selecione uma opção"
@@ -467,32 +528,28 @@ while ($true) {
         "1" {
 
             Executar-Modulo `
-                -Url $UrlManutencao `
-                -NomeArquivo "manutencao.ps1" `
+                -Arquivo $ModuloManutencao `
                 -Nome "Manutenção"
         }
 
         "2" {
 
             Executar-Modulo `
-                -Url $UrlPersonalizacao `
-                -NomeArquivo "personalizacao.ps1" `
+                -Arquivo $ModuloPersonalizacao `
                 -Nome "Personalização"
         }
 
         "3" {
 
             Executar-Modulo `
-                -Url $UrlProgramas `
-                -NomeArquivo "programas.ps1" `
+                -Arquivo $ModuloProgramas `
                 -Nome "Programas"
         }
 
         "4" {
 
             Executar-Modulo `
-                -Url $UrlOffice `
-                -NomeArquivo "office.ps1" `
+                -Arquivo $ModuloOffice `
                 -Nome "Office"
         }
 
