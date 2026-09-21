@@ -24,13 +24,16 @@ $UrlOffice         = "$GitHubBase/office.ps1"
 # ------------------------------------------------------------
 
 function Pausar {
+
     Write-Host ""
     Write-Host "Pressione qualquer tecla para continuar..." -ForegroundColor DarkGray
+
     [void][System.Console]::ReadKey($true)
 }
 
 
 function Limpar-Tela {
+
     Clear-Host
 }
 
@@ -74,6 +77,7 @@ function Obter-Modulo {
             -TimeoutSec 60
 
         if ([string]::IsNullOrWhiteSpace($Codigo)) {
+
             throw "O arquivo retornado está vazio."
         }
 
@@ -105,9 +109,12 @@ function Executar-Modulo {
         [string]$Nome
     )
 
-    $Codigo = Obter-Modulo -Url $Url -Nome $Nome
+    $Codigo = Obter-Modulo `
+        -Url $Url `
+        -Nome $Nome
 
     if ($null -eq $Codigo) {
+
         Pausar
         return
     }
@@ -128,200 +135,6 @@ function Executar-Modulo {
 
         Pausar
     }
-}
-
-
-# ------------------------------------------------------------
-# DIAGNÓSTICO
-# ------------------------------------------------------------
-
-function Executar-Diagnostico {
-
-    param(
-        [string]$Cliente,
-        [string]$TipoCliente
-    )
-
-    $Codigo = Obter-Modulo `
-        -Url $UrlDiagnostico `
-        -Nome "Diagnóstico Preventivo"
-
-    if ($null -eq $Codigo) {
-        Pausar
-        return
-    }
-
-    try {
-
-        # Disponibiliza as informações para o módulo diagnóstico.ps1
-        $env:LR_CLIENTE = $Cliente
-        $env:LR_TIPO_CLIENTE = $TipoCliente
-
-        Invoke-Expression $Codigo
-    }
-    catch {
-
-        Write-Host ""
-        Write-Host "ERRO DURANTE O DIAGNÓSTICO" -ForegroundColor Red
-        Write-Host "------------------------------------------------------------" -ForegroundColor DarkGray
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        Write-Host ""
-
-        Pausar
-    }
-    finally {
-
-        Remove-Item Env:\LR_CLIENTE -ErrorAction SilentlyContinue
-        Remove-Item Env:\LR_TIPO_CLIENTE -ErrorAction SilentlyContinue
-    }
-}
-
-
-# ------------------------------------------------------------
-# MENU DIAGNÓSTICO
-# ------------------------------------------------------------
-
-function Menu-Diagnostico {
-
-    do {
-
-        Mostrar-Cabecalho
-
-        Write-Host "DIAGNÓSTICO" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "1 - Cliente Existente"
-        Write-Host "2 - Cliente Novo"
-        Write-Host "0 - Voltar"
-        Write-Host ""
-
-        $Opcao = [System.Console]::ReadKey($true).KeyChar
-
-        switch ($Opcao) {
-
-            "1" {
-                Menu-ClienteExistente
-            }
-
-            "2" {
-                Executar-Diagnostico `
-                    -Cliente "Cliente Novo" `
-                    -TipoCliente "Novo"
-            }
-
-            "0" {
-                return
-            }
-        }
-
-    } while ($true)
-}
-
-
-# ------------------------------------------------------------
-# CLIENTE EXISTENTE
-# ------------------------------------------------------------
-
-function Menu-ClienteExistente {
-
-    do {
-
-        Mostrar-Cabecalho
-
-        Write-Host "CLIENTE EXISTENTE" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "1 - Contrato Mensal"
-        Write-Host "2 - Sem Contrato / Particular"
-        Write-Host "0 - Voltar"
-        Write-Host ""
-
-        $Opcao = [System.Console]::ReadKey($true).KeyChar
-
-        switch ($Opcao) {
-
-            "1" {
-                Menu-ContratoMensal
-            }
-
-            "2" {
-
-                Mostrar-Cabecalho
-
-                Write-Host "CLIENTE PARTICULAR" -ForegroundColor Yellow
-                Write-Host ""
-
-                $Cliente = Read-Host "Nome do cliente"
-
-                if ([string]::IsNullOrWhiteSpace($Cliente)) {
-                    $Cliente = "Cliente Particular"
-                }
-
-                Executar-Diagnostico `
-                    -Cliente $Cliente `
-                    -TipoCliente "Sem Contrato / Particular"
-            }
-
-            "0" {
-                return
-            }
-        }
-
-    } while ($true)
-}
-
-
-# ------------------------------------------------------------
-# CONTRATO MENSAL
-# ------------------------------------------------------------
-
-function Menu-ContratoMensal {
-
-    do {
-
-        Mostrar-Cabecalho
-
-        Write-Host "CLIENTES COM CONTRATO MENSAL" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "1 - A Casa do Panificador"
-        Write-Host "2 - Escritório Real de Contabilidade"
-        Write-Host "3 - Impacto Contabilidade"
-        Write-Host "4 - Futura Contabilidade"
-        Write-Host "0 - Voltar"
-        Write-Host ""
-
-        $Opcao = [System.Console]::ReadKey($true).KeyChar
-
-        switch ($Opcao) {
-
-            "1" {
-                Executar-Diagnostico `
-                    -Cliente "A Casa do Panificador" `
-                    -TipoCliente "Contrato Mensal"
-            }
-
-            "2" {
-                Executar-Diagnostico `
-                    -Cliente "Escritório Real de Contabilidade" `
-                    -TipoCliente "Contrato Mensal"
-            }
-
-            "3" {
-                Executar-Diagnostico `
-                    -Cliente "Impacto Contabilidade" `
-                    -TipoCliente "Contrato Mensal"
-            }
-
-            "4" {
-                Executar-Diagnostico `
-                    -Cliente "Futura Contabilidade" `
-                    -TipoCliente "Contrato Mensal"
-            }
-
-            "0" {
-                return
-            }
-        }
-
-    } while ($true)
 }
 
 
@@ -403,7 +216,9 @@ function Menu-Principal {
 
             "5" {
 
-                Menu-Diagnostico
+                Executar-Modulo `
+                    -Url $UrlDiagnostico `
+                    -Nome "Diagnóstico Preventivo"
             }
 
 
