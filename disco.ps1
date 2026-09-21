@@ -2,9 +2,9 @@
 # LR TECNOLOGIA
 # SEATTLE - TESTE E DIAGNÓSTICO DE ARMAZENAMENTO
 #
-# Versão: 2.0.0
+# Versão: 2.1.0
 #
-# Avaliação somente leitura:
+# Diagnóstico somente leitura:
 #   - Identificação HDD / SSD / NVMe
 #   - HealthStatus / OperationalStatus
 #   - Storage Reliability Counter
@@ -12,11 +12,12 @@
 #   - Horas de uso
 #   - Desgaste
 #   - Erros de leitura/gravação
-#   - Latência máxima
+#   - Latência
 #   - Espaço livre
 #   - CHKDSK /SCAN
-#   - Eventos de armazenamento do Windows
+#   - Eventos de armazenamento
 #   - Teste de leitura com WinSAT
+#   - Geração de relatório PDF local
 #
 # NÃO EXECUTA:
 #   - CHKDSK /F
@@ -39,6 +40,12 @@ $Resultado = "NORMAL"
 
 $Alertas = New-Object System.Collections.Generic.List[string]
 $Avisos  = New-Object System.Collections.Generic.List[string]
+
+$DadosDiscos = New-Object System.Collections.Generic.List[object]
+
+$ChkDiskTexto = ""
+$EventosResumo = New-Object System.Collections.Generic.List[object]
+$WinSATTexto = ""
 
 
 # ============================================================
@@ -89,20 +96,129 @@ function Mostrar-Linha {
 }
 
 
+function Html {
+
+    param(
+        [AllowNull()]
+        [object]$Texto
+    )
+
+    if ($null -eq $Texto) {
+        return ""
+    }
+
+    return [System.Net.WebUtility]::HtmlEncode([string]$Texto)
+}
+
+
+function Obter-Caminho-Navegador {
+
+    $Caminhos = @(
+        "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+        "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+        "$env:LOCALAPPDATA\Microsoft\Edge\Application\msedge.exe",
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+        "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+    )
+
+    foreach ($Caminho in $Caminhos) {
+
+        if ($Caminho -and (Test-Path $Caminho)) {
+            return $Caminho
+        }
+    }
+
+    return $null
+}
+
+
+function Gerar-PDF {
+
+    param(
+        [string]$CaminhoPDF,
+        [string]$CaminhoHTML
+    )
+
+    $Navegador = Obter-Caminho-Navegador
+
+    if (-not $Navegador) {
+
+        Write-Host ""
+        Write-Host "Microsoft Edge/Google Chrome não encontrado." `
+            -ForegroundColor Yellow
+
+        Write-Host ""
+        Write-Host "O relatório HTML foi mantido em:"
+        Write-Host $CaminhoHTML
+
+        return $false
+    }
+
+    Write-Host ""
+    Write-Host "Gerando relatório PDF..." `
+        -ForegroundColor Cyan
+
+    try {
+
+        $Argumentos = @(
+            "--headless=new"
+            "--disable-gpu"
+            "--no-first-run"
+            "--no-default-browser-check"
+            "--print-to-pdf=`"$CaminhoPDF`""
+            "--print-to-pdf-no-header"
+            "`"$CaminhoHTML`""
+        )
+
+        $Processo = Start-Process `
+            -FilePath $Navegador `
+            -ArgumentList $Argumentos `
+            -Wait `
+            -PassThru `
+            -WindowStyle Hidden
+
+        Start-Sleep -Seconds 2
+
+        if (Test-Path $CaminhoPDF) {
+
+            return $true
+        }
+
+    }
+    catch {
+
+        Write-Host ""
+        Write-Host "Erro ao gerar o PDF: $($_.Exception.Message)" `
+            -ForegroundColor Yellow
+    }
+
+    return $false
+}
+
+
 # ============================================================
 # CABEÇALHO
 # ============================================================
 
 Write-Host ""
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "       LR TECNOLOGIA - DIAGNÓSTICO DO ARMAZENAMENTO" -ForegroundColor Cyan
-Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "============================================================" `
+    -ForegroundColor Cyan
+
+Write-Host "       LR TECNOLOGIA - DIAGNÓSTICO DO ARMAZENAMENTO" `
+    -ForegroundColor Cyan
+
+Write-Host "============================================================" `
+    -ForegroundColor Cyan
+
 Write-Host ""
+
+$DataHoraInicio = Get-Date -Format "dd/MM/yyyy HH:mm:ss"
 
 Write-Host "Computador : $env:COMPUTERNAME"
 Write-Host "Usuário    : $env:USERNAME"
 Write-Host "Windows    : $([System.Environment]::OSVersion.Version)"
-Write-Host "Data       : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')"
+Write-Host "Data       : $DataHoraInicio"
 Write-Host ""
 
 
@@ -124,8 +240,11 @@ if (-not $Administrador) {
         -ForegroundColor Yellow
 
     Write-Host ""
-    Write-Host "Algumas informações de confiabilidade podem não estar disponíveis."
+    Write-Host "Algumas informações podem não estar disponíveis."
     Write-Host ""
+
+    Adicionar-Aviso `
+        "O PowerShell não foi executado como Administrador. Algumas informações podem estar incompletas."
 }
 
 
@@ -134,10 +253,15 @@ if (-not $Administrador) {
 # ============================================================
 
 Write-Host "UNIDADE DO SISTEMA" -ForegroundColor Cyan
+
 Mostrar-Linha
 
 $ParticaoSistema = Get-CimInstance Win32_LogicalDisk `
     -Filter "DeviceID='C:'"
+
+$EspacoTotal = 0
+$EspacoLivre = 0
+$PercentualLivre = 0
 
 if ($ParticaoSistema -and $ParticaoSistema.Size -gt 0) {
 
@@ -190,6 +314,7 @@ Write-Host ""
 # ============================================================
 
 Write-Host "DISCOS FÍSICOS" -ForegroundColor Cyan
+
 Mostrar-Linha
 
 $Discos = @(Get-PhysicalDisk)
@@ -217,7 +342,7 @@ else {
 
 
         # ====================================================
-        # IDENTIFICAÇÃO DO TIPO
+        # IDENTIFICAÇÃO
         # ====================================================
 
         switch ([string]$Disco.MediaType) {
@@ -239,8 +364,6 @@ else {
             }
         }
 
-
-        # Detectar NVMe pelo barramento/modelo quando possível
 
         if (
             ([string]$Disco.BusType -eq "NVMe") -or
@@ -265,6 +388,30 @@ else {
         Write-Host "Capacidade        : $CapacidadeDisco GB"
         Write-Host "HealthStatus      : $($Disco.HealthStatus)"
         Write-Host "OperationalStatus : $($Disco.OperationalStatus)"
+
+
+        # ====================================================
+        # OBJETO PARA O RELATÓRIO
+        # ====================================================
+
+        $DadosDisco = [PSCustomObject]@{
+
+            Tipo              = $TipoMidia
+            Modelo            = [string]$Disco.FriendlyName
+            Fabricante        = [string]$Disco.Manufacturer
+            Serial            = [string]$Disco.SerialNumber
+            Barramento        = [string]$Disco.BusType
+            Capacidade        = "$CapacidadeDisco GB"
+            HealthStatus      = [string]$Disco.HealthStatus
+            OperationalStatus = [string]$Disco.OperationalStatus
+            Temperatura       = "Não disponível"
+            HorasUso          = "Não disponível"
+            Desgaste          = "Não disponível"
+            ErrosLeitura     = "Não disponível"
+            ErrosGravacao     = "Não disponível"
+            LatenciaLeitura   = "Não disponível"
+            LatenciaGravacao  = "Não disponível"
+        }
 
 
         # ====================================================
@@ -295,7 +442,7 @@ else {
 
 
         # ====================================================
-        # STORAGE RELIABILITY COUNTER
+        # STORAGE RELIABILITY
         # ====================================================
 
         Write-Host ""
@@ -304,10 +451,8 @@ else {
 
         Mostrar-Linha
 
-
         $Contador = Get-StorageReliabilityCounter `
             -PhysicalDisk $Disco
-
 
         if ($Contador) {
 
@@ -318,20 +463,24 @@ else {
 
             if ($null -ne $Contador.Temperature) {
 
-                Write-Host "Temperatura       : $($Contador.Temperature) °C"
+                $Temperatura = $Contador.Temperature
 
-                if ($Contador.Temperature -ge 70) {
+                $DadosDisco.Temperatura = "$Temperatura °C"
+
+                Write-Host "Temperatura       : $Temperatura °C"
+
+                if ($Temperatura -ge 70) {
 
                     Adicionar-Alerta `
-                        "Temperatura muito elevada no disco '$($Disco.FriendlyName)': $($Contador.Temperature) °C."
+                        "Temperatura muito elevada no disco '$($Disco.FriendlyName)': $Temperatura °C."
 
                     Nivel-Critico
                 }
 
-                elseif ($Contador.Temperature -ge 60) {
+                elseif ($Temperatura -ge 60) {
 
                     Adicionar-Alerta `
-                        "Temperatura elevada no disco '$($Disco.FriendlyName)': $($Contador.Temperature) °C."
+                        "Temperatura elevada no disco '$($Disco.FriendlyName)': $Temperatura °C."
 
                     Nivel-Atencao
                 }
@@ -349,9 +498,10 @@ else {
 
             if ($null -ne $Contador.PowerOnHours) {
 
+                $DadosDisco.HorasUso = "$($Contador.PowerOnHours) h"
+
                 Write-Host "Horas ligado      : $($Contador.PowerOnHours) h"
             }
-
             else {
 
                 Write-Host "Horas ligado      : Não disponível"
@@ -364,10 +514,9 @@ else {
 
             if ($null -ne $Contador.Wear) {
 
-                Write-Host "Desgaste          : $($Contador.Wear)%"
+                $DadosDisco.Desgaste = "$($Contador.Wear)%"
 
-                # O significado de Wear pode variar conforme
-                # fabricante e dispositivo.
+                Write-Host "Desgaste          : $($Contador.Wear)%"
 
                 if ($Contador.Wear -ge 90) {
 
@@ -385,7 +534,6 @@ else {
                     Nivel-Atencao
                 }
             }
-
             else {
 
                 Write-Host "Desgaste          : Não disponível"
@@ -398,6 +546,9 @@ else {
 
             if ($null -ne $Contador.ReadErrorsUncorrected) {
 
+                $DadosDisco.ErrosLeitura =
+                    [string]$Contador.ReadErrorsUncorrected
+
                 Write-Host "Erros leitura     : $($Contador.ReadErrorsUncorrected)"
 
                 if ($Contador.ReadErrorsUncorrected -gt 0) {
@@ -408,7 +559,6 @@ else {
                     Nivel-Critico
                 }
             }
-
             else {
 
                 Write-Host "Erros leitura     : Não disponível"
@@ -421,6 +571,9 @@ else {
 
             if ($null -ne $Contador.WriteErrorsUncorrected) {
 
+                $DadosDisco.ErrosGravacao =
+                    [string]$Contador.WriteErrorsUncorrected
+
                 Write-Host "Erros gravação    : $($Contador.WriteErrorsUncorrected)"
 
                 if ($Contador.WriteErrorsUncorrected -gt 0) {
@@ -431,7 +584,6 @@ else {
                     Nivel-Critico
                 }
             }
-
             else {
 
                 Write-Host "Erros gravação    : Não disponível"
@@ -439,10 +591,13 @@ else {
 
 
             # ------------------------------------------------
-            # LATÊNCIA DE LEITURA
+            # LATÊNCIA LEITURA
             # ------------------------------------------------
 
             if ($null -ne $Contador.ReadLatencyMax) {
+
+                $DadosDisco.LatenciaLeitura =
+                    "$($Contador.ReadLatencyMax) ms"
 
                 Write-Host "Latência leitura  : $($Contador.ReadLatencyMax) ms"
 
@@ -457,10 +612,13 @@ else {
 
 
             # ------------------------------------------------
-            # LATÊNCIA DE GRAVAÇÃO
+            # LATÊNCIA GRAVAÇÃO
             # ------------------------------------------------
 
             if ($null -ne $Contador.WriteLatencyMax) {
+
+                $DadosDisco.LatenciaGravacao =
+                    "$($Contador.WriteLatencyMax) ms"
 
                 Write-Host "Latência gravação : $($Contador.WriteLatencyMax) ms"
 
@@ -474,7 +632,6 @@ else {
             }
 
         }
-
         else {
 
             Write-Host "Contadores        : Não disponíveis" `
@@ -483,6 +640,9 @@ else {
             Adicionar-Aviso `
                 "Os contadores de confiabilidade não estão disponíveis para '$($Disco.FriendlyName)'."
         }
+
+
+        $DadosDiscos.Add($DadosDisco)
 
         Write-Host ""
     }
@@ -509,7 +669,6 @@ $ChkDiskResultado = & chkdsk.exe C: /scan 2>&1
 $ChkDiskTexto = $ChkDiskResultado -join "`n"
 
 Write-Host $ChkDiskTexto
-
 
 if ($LASTEXITCODE -ne 0) {
 
@@ -551,7 +710,6 @@ Write-Host "Consultando eventos dos últimos 7 dias..."
 
 $DataInicio = (Get-Date).AddDays(-7)
 
-
 $EventosDisco = @(
     Get-WinEvent `
         -FilterHashtable @{
@@ -566,7 +724,6 @@ $EventosDisco = @(
     }
 )
 
-
 $EventosErro = @(
     $EventosDisco |
     Where-Object {
@@ -576,9 +733,21 @@ $EventosErro = @(
     }
 )
 
-
 Write-Host "Eventos encontrados : $($EventosDisco.Count)"
 Write-Host "Erros críticos      : $($EventosErro.Count)"
+
+
+foreach ($Evento in ($EventosErro | Select-Object -First 10)) {
+
+    $EventosResumo.Add(
+        [PSCustomObject]@{
+            Data     = $Evento.TimeCreated
+            Origem   = $Evento.ProviderName
+            ID       = $Evento.Id
+            Mensagem = $Evento.Message
+        }
+    )
+}
 
 
 if ($EventosErro.Count -gt 0) {
@@ -587,18 +756,14 @@ if ($EventosErro.Count -gt 0) {
     Write-Host "Eventos de erro encontrados:" `
         -ForegroundColor Yellow
 
+    foreach ($Evento in ($EventosErro | Select-Object -First 10)) {
 
-    $EventosErro |
-        Select-Object -First 10 |
-        ForEach-Object {
-
-            Write-Host ""
-            Write-Host "Data    : $($_.TimeCreated)"
-            Write-Host "Origem  : $($_.ProviderName)"
-            Write-Host "ID      : $($_.Id)"
-            Write-Host "Mensagem: $($_.Message)"
-        }
-
+        Write-Host ""
+        Write-Host "Data    : $($Evento.TimeCreated)"
+        Write-Host "Origem  : $($Evento.ProviderName)"
+        Write-Host "ID      : $($Evento.Id)"
+        Write-Host "Mensagem: $($Evento.Message)"
+    }
 
     Adicionar-Alerta `
         "Foram encontrados eventos de erro relacionados ao armazenamento nos últimos 7 dias."
@@ -625,14 +790,12 @@ Write-Host "TESTE DE LEITURA / DESEMPENHO" `
 Mostrar-Linha
 
 Write-Host ""
-Write-Host "Este teste não cria arquivo temporário"
-Write-Host "e não grava dados no disco."
+Write-Host "Este teste não cria arquivo temporário."
+Write-Host "Não serão gravados dados no disco."
 Write-Host ""
-
 
 $WinSAT = Get-Command winsat.exe `
     -ErrorAction SilentlyContinue
-
 
 if ($WinSAT) {
 
@@ -640,23 +803,12 @@ if ($WinSAT) {
     Write-Host "Aguarde..."
     Write-Host ""
 
-
-    # Somente operações de leitura.
-    #
-    # Não utilizar:
-    #
-    # winsat disk -drive c
-    #
-    # porque a avaliação completa pode incluir operações
-    # de gravação.
-
     $WinSATResultado = & winsat.exe `
         disk `
         -drive c `
         -seq -read `
         -ran -read `
         2>&1
-
 
     $WinSATTexto = $WinSATResultado -join "`n"
 
@@ -683,12 +835,10 @@ $Duracao = New-TimeSpan `
     -Start $Inicio `
     -End $Fim
 
-
 Write-Host ""
 Write-Host ""
 
 Write-Host "============================================================"
-
 
 switch ($Resultado) {
 
@@ -711,7 +861,6 @@ switch ($Resultado) {
     }
 }
 
-
 Write-Host "============================================================"
 Write-Host ""
 
@@ -724,7 +873,6 @@ if ($Alertas.Count -gt 0) {
 
     Write-Host "INDICADORES ENCONTRADOS:" `
         -ForegroundColor Yellow
-
 
     foreach ($Alerta in $Alertas) {
 
@@ -751,7 +899,6 @@ if ($Avisos.Count -gt 0) {
     Write-Host "OBSERVAÇÕES:" `
         -ForegroundColor Cyan
 
-
     foreach ($Aviso in $Avisos) {
 
         Write-Host ""
@@ -770,7 +917,6 @@ Write-Host "RECOMENDAÇÃO:" `
 
 Write-Host ""
 
-
 switch ($Resultado) {
 
     "NORMAL" {
@@ -783,7 +929,6 @@ switch ($Resultado) {
         Write-Host `
             "Manter backup periódico dos dados."
     }
-
 
     "ATENÇÃO" {
 
@@ -799,7 +944,6 @@ switch ($Resultado) {
         Write-Host "4. Considerar ferramenta específica do fabricante."
     }
 
-
     "CRÍTICO" {
 
         Write-Host `
@@ -813,6 +957,593 @@ switch ($Resultado) {
         Write-Host "2. Evitar operações desnecessárias no disco."
         Write-Host "3. Realizar diagnóstico aprofundado."
         Write-Host "4. Avaliar substituição do dispositivo."
+    }
+}
+
+
+# ============================================================
+# GERAR RELATÓRIO PDF
+# ============================================================
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host "GERAÇÃO DO RELATÓRIO" -ForegroundColor Cyan
+Write-Host "============================================================"
+Write-Host ""
+
+$PastaRelatorios = "C:\ProgramData\LR Tecnologia\Relatorios"
+
+if (-not (Test-Path $PastaRelatorios)) {
+
+    New-Item `
+        -ItemType Directory `
+        -Path $PastaRelatorios `
+        -Force | Out-Null
+}
+
+$DataArquivo = Get-Date -Format "yyyyMMdd_HHmmss"
+
+$NomeBase = "Diagnostico_Disco_$DataArquivo"
+
+$CaminhoPDF = Join-Path `
+    $PastaRelatorios `
+    "$NomeBase.pdf"
+
+$CaminhoHTML = Join-Path `
+    $env:TEMP `
+    "$NomeBase.html"
+
+
+# ============================================================
+# PREPARAR HTML
+# ============================================================
+
+$ClasseResultado = switch ($Resultado) {
+
+    "NORMAL" { "normal" }
+    "ATENÇÃO" { "atencao" }
+    "CRÍTICO" { "critico" }
+    default { "normal" }
+}
+
+
+$HTMLDiscos = ""
+
+foreach ($D in $DadosDiscos) {
+
+    $HTMLDiscos += @"
+<div class="disk">
+    <h2>$(Html $D.Modelo)</h2>
+
+    <table>
+        <tr><th>Tipo</th><td>$(Html $D.Tipo)</td></tr>
+        <tr><th>Fabricante</th><td>$(Html $D.Fabricante)</td></tr>
+        <tr><th>Número de série</th><td>$(Html $D.Serial)</td></tr>
+        <tr><th>Barramento</th><td>$(Html $D.Barramento)</td></tr>
+        <tr><th>Capacidade</th><td>$(Html $D.Capacidade)</td></tr>
+        <tr><th>HealthStatus</th><td>$(Html $D.HealthStatus)</td></tr>
+        <tr><th>OperationalStatus</th><td>$(Html $D.OperationalStatus)</td></tr>
+        <tr><th>Temperatura</th><td>$(Html $D.Temperatura)</td></tr>
+        <tr><th>Horas de uso</th><td>$(Html $D.HorasUso)</td></tr>
+        <tr><th>Desgaste</th><td>$(Html $D.Desgaste)</td></tr>
+        <tr><th>Erros de leitura</th><td>$(Html $D.ErrosLeitura)</td></tr>
+        <tr><th>Erros de gravação</th><td>$(Html $D.ErrosGravacao)</td></tr>
+        <tr><th>Latência máxima leitura</th><td>$(Html $D.LatenciaLeitura)</td></tr>
+        <tr><th>Latência máxima gravação</th><td>$(Html $D.LatenciaGravacao)</td></tr>
+    </table>
+</div>
+"@
+}
+
+
+$HTMLAlertas = ""
+
+if ($Alertas.Count -gt 0) {
+
+    foreach ($Alerta in $Alertas) {
+
+        $HTMLAlertas += "<li>$(Html $Alerta)</li>"
+    }
+
+}
+else {
+
+    $HTMLAlertas = "<li>Nenhum indicador relevante identificado.</li>"
+}
+
+
+$HTMLAvisos = ""
+
+if ($Avisos.Count -gt 0) {
+
+    foreach ($Aviso in $Avisos) {
+
+        $HTMLAvisos += "<li>$(Html $Aviso)</li>"
+    }
+
+}
+else {
+
+    $HTMLAvisos = "<li>Nenhuma observação adicional.</li>"
+}
+
+
+$HTMLEventos = ""
+
+if ($EventosResumo.Count -gt 0) {
+
+    foreach ($Evento in $EventosResumo) {
+
+        $MensagemEvento = [string]$Evento.Mensagem
+
+        if ($MensagemEvento.Length -gt 500) {
+            $MensagemEvento = $MensagemEvento.Substring(0,500) + "..."
+        }
+
+        $HTMLEventos += @"
+<tr>
+    <td>$(Html $Evento.Data)</td>
+    <td>$(Html $Evento.Origem)</td>
+    <td>$(Html $Evento.ID)</td>
+    <td>$(Html $MensagemEvento)</td>
+</tr>
+"@
+    }
+
+}
+else {
+
+    $HTMLEventos = @"
+<tr>
+    <td colspan="4">Nenhum erro crítico de armazenamento encontrado nos últimos 7 dias.</td>
+</tr>
+"@
+}
+
+
+$WinSATResumo = $WinSATTexto
+
+if ([string]::IsNullOrWhiteSpace($WinSATResumo)) {
+
+    $WinSATResumo = "Teste de leitura não disponível."
+}
+
+if ($WinSATResumo.Length -gt 8000) {
+
+    $WinSATResumo = $WinSATResumo.Substring(0,8000) + "`r`n..."
+}
+
+
+$HTML = @"
+<!DOCTYPE html>
+
+<html lang="pt-BR">
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>Diagnóstico de Armazenamento - LR Tecnologia</title>
+
+<style>
+
+@page {
+    size: A4;
+    margin: 15mm;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    color: #222;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.header {
+    border-bottom: 3px solid #1e73be;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+}
+
+.logo {
+    font-size: 22px;
+    font-weight: bold;
+    color: #1e73be;
+}
+
+.subtitulo {
+    font-size: 13px;
+    color: #555;
+}
+
+.info {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+}
+
+.info td {
+    padding: 5px 7px;
+    border-bottom: 1px solid #ddd;
+}
+
+.info td:first-child {
+    font-weight: bold;
+    width: 160px;
+}
+
+.resultado {
+    padding: 14px;
+    text-align: center;
+    font-size: 22px;
+    font-weight: bold;
+    margin: 15px 0 25px 0;
+    border-radius: 5px;
+}
+
+.normal {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #81c784;
+}
+
+.atencao {
+    background: #fff8e1;
+    color: #f57f17;
+    border: 1px solid #ffcc80;
+}
+
+.critico {
+    background: #ffebee;
+    color: #c62828;
+    border: 1px solid #ef9a9a;
+}
+
+h1 {
+    font-size: 17px;
+    color: #1e73be;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 5px;
+    margin-top: 25px;
+}
+
+h2 {
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.disk {
+    page-break-inside: avoid;
+    margin-bottom: 20px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th {
+    background: #f1f1f1;
+    text-align: left;
+    font-weight: bold;
+}
+
+th, td {
+    border: 1px solid #d5d5d5;
+    padding: 6px;
+    vertical-align: top;
+}
+
+.disk table th {
+    width: 220px;
+}
+
+.alertas li {
+    margin-bottom: 7px;
+}
+
+.avisos li {
+    margin-bottom: 7px;
+}
+
+pre {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    padding: 10px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: Consolas, monospace;
+    font-size: 8px;
+}
+
+.footer {
+    margin-top: 30px;
+    border-top: 1px solid #ccc;
+    padding-top: 10px;
+    color: #666;
+    font-size: 9px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="header">
+
+    <div class="logo">
+        LR TECNOLOGIA
+    </div>
+
+    <div class="subtitulo">
+        Seattle — Teste e Diagnóstico de Armazenamento
+    </div>
+
+</div>
+
+
+<table class="info">
+
+<tr>
+    <td>Computador</td>
+    <td>$(Html $env:COMPUTERNAME)</td>
+</tr>
+
+<tr>
+    <td>Usuário</td>
+    <td>$(Html $env:USERNAME)</td>
+</tr>
+
+<tr>
+    <td>Windows</td>
+    <td>$(Html ([System.Environment]::OSVersion.Version))</td>
+</tr>
+
+<tr>
+    <td>Data do diagnóstico</td>
+    <td>$(Html $DataHoraInicio)</td>
+</tr>
+
+<tr>
+    <td>Unidade analisada</td>
+    <td>C:</td>
+</tr>
+
+<tr>
+    <td>Capacidade C:</td>
+    <td>$EspacoTotal GB</td>
+</tr>
+
+<tr>
+    <td>Espaço livre</td>
+    <td>$EspacoLivre GB ($PercentualLivre%)</td>
+</tr>
+
+<tr>
+    <td>Tempo do diagnóstico</td>
+    <td>$($Duracao.Minutes) min $($Duracao.Seconds) s</td>
+</tr>
+
+</table>
+
+
+<div class="resultado $ClasseResultado">
+
+RESULTADO: $(Html $Resultado)
+
+</div>
+
+
+<h1>1. Discos físicos</h1>
+
+$HTMLDiscos
+
+
+<h1>2. Indicadores encontrados</h1>
+
+<ul class="alertas">
+
+$HTMLAlertas
+
+</ul>
+
+
+<h1>3. Observações</h1>
+
+<ul class="avisos">
+
+$HTMLAvisos
+
+</ul>
+
+
+<h1>4. Verificação do sistema de arquivos</h1>
+
+<p>
+<strong>CHKDSK /SCAN — unidade C:</strong>
+</p>
+
+<pre>$(Html $ChkDiskTexto)</pre>
+
+
+<h1>5. Eventos de armazenamento</h1>
+
+<table>
+
+<tr>
+    <th>Data</th>
+    <th>Origem</th>
+    <th>ID</th>
+    <th>Mensagem</th>
+</tr>
+
+$HTMLEventos
+
+</table>
+
+
+<h1>6. Teste de leitura</h1>
+
+<p>
+O teste de desempenho foi realizado somente com operações de leitura.
+Nenhum arquivo temporário foi criado para benchmark.
+</p>
+
+<pre>$(Html $WinSATResumo)</pre>
+
+
+<h1>7. Recomendação técnica</h1>
+
+$(switch ($Resultado) {
+
+    "NORMAL" {
+        @"
+<p>
+Não foram encontrados indícios relevantes de falha nos testes realizados.
+</p>
+
+<p>
+<strong>Recomendação:</strong> manter backup periódico dos dados.
+</p>
+"@
+    }
+
+    "ATENÇÃO" {
+        @"
+<p>
+Foram encontrados indicadores que merecem investigação.
+</p>
+
+<ul>
+    <li>Realizar backup dos dados importantes.</li>
+    <li>Investigar os indicadores apresentados.</li>
+    <li>Repetir o diagnóstico quando necessário.</li>
+    <li>Considerar ferramenta específica do fabricante.</li>
+</ul>
+"@
+    }
+
+    "CRÍTICO" {
+        @"
+<p>
+Foram encontrados indicadores compatíveis com possível problema no armazenamento.
+</p>
+
+<p><strong>Recomendação imediata:</strong></p>
+
+<ol>
+    <li>Fazer backup dos dados.</li>
+    <li>Evitar operações desnecessárias no disco.</li>
+    <li>Realizar diagnóstico aprofundado.</li>
+    <li>Avaliar substituição do dispositivo.</li>
+</ol>
+"@
+    }
+})
+
+
+<div class="footer">
+
+    <strong>LR Tecnologia</strong><br>
+
+    Seattle — Diagnóstico de armazenamento<br>
+
+    Desenvolvido por Leonardo M. Batista<br><br>
+
+    Este diagnóstico não garante que o dispositivo não irá falhar.
+    Ele avalia os indicadores disponibilizados pelo Windows e pelo
+    dispositivo durante os testes realizados.
+
+</div>
+
+
+</body>
+
+</html>
+"@
+
+
+# ============================================================
+# GRAVAR HTML TEMPORÁRIO
+# ============================================================
+
+try {
+
+    [System.IO.File]::WriteAllText(
+        $CaminhoHTML,
+        $HTML,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+
+}
+catch {
+
+    Write-Host ""
+    Write-Host "Não foi possível criar o relatório temporário." `
+        -ForegroundColor Red
+
+    Adicionar-Alerta `
+        "Falha na criação do relatório local."
+
+    $CaminhoHTML = $null
+}
+
+
+# ============================================================
+# GERAR PDF
+# ============================================================
+
+$PDFGerado = $false
+
+if ($CaminhoHTML) {
+
+    $PDFGerado = Gerar-PDF `
+        -CaminhoPDF $CaminhoPDF `
+        -CaminhoHTML $CaminhoHTML
+}
+
+
+# ============================================================
+# REMOVER HTML TEMPORÁRIO
+# ============================================================
+
+if ($PDFGerado -and (Test-Path $CaminhoHTML)) {
+
+    Remove-Item `
+        $CaminhoHTML `
+        -Force `
+        -ErrorAction SilentlyContinue
+}
+
+
+# ============================================================
+# RESULTADO DO RELATÓRIO
+# ============================================================
+
+Write-Host ""
+
+if ($PDFGerado) {
+
+    Write-Host "RELATÓRIO PDF GERADO COM SUCESSO" `
+        -ForegroundColor Green
+
+    Write-Host ""
+    Write-Host "Arquivo:"
+    Write-Host $CaminhoPDF
+
+}
+else {
+
+    Write-Host "Não foi possível gerar o PDF automaticamente." `
+        -ForegroundColor Yellow
+
+    if ($CaminhoHTML -and (Test-Path $CaminhoHTML)) {
+
+        Write-Host ""
+        Write-Host "Relatório HTML disponível em:"
+        Write-Host $CaminhoHTML
     }
 }
 
