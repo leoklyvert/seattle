@@ -1,50 +1,44 @@
 # ============================================================
 # LR TECNOLOGIA
-# SEATTLE - DIAGNOSTICO COMPLETO DO ARMAZENAMENTO
+# SEATTLE - TESTE E DIAGNÓSTICO DE ARMAZENAMENTO
 #
-# Versao: 1.0
+# Versão: 2.0.0
 #
-# Funcionalidades:
-#   - Identificacao HDD / SSD / NVMe
-#   - Capacidade
-#   - HealthStatus
+# Avaliação somente leitura:
+#   - Identificação HDD / SSD / NVMe
+#   - HealthStatus / OperationalStatus
 #   - Storage Reliability Counter
 #   - Temperatura
 #   - Horas de uso
 #   - Desgaste
 #   - Erros de leitura/gravação
+#   - Latência máxima
+#   - Espaço livre
 #   - CHKDSK /SCAN
 #   - Eventos de armazenamento do Windows
-#   - Teste de leitura/desempenho com WinSAT
+#   - Teste de leitura com WinSAT
 #
-# NAO EXECUTA:
+# NÃO EXECUTA:
 #   - CHKDSK /F
 #   - CHKDSK /R
 #   - Formatação
-#   - Escrita de dados de teste
+#   - Escrita de arquivo para benchmark
 #   - Alterações no disco
 #
 # Desenvolvido por Leonardo M. Batista
 # LR Tecnologia
 # ============================================================
 
-
 $ErrorActionPreference = "SilentlyContinue"
 
 Clear-Host
-
-
-# ============================================================
-# CONFIGURAÇÕES
-# ============================================================
 
 $Inicio = Get-Date
 
 $Resultado = "NORMAL"
 
 $Alertas = New-Object System.Collections.Generic.List[string]
-
-$Avisos = New-Object System.Collections.Generic.List[string]
+$Avisos  = New-Object System.Collections.Generic.List[string]
 
 
 # ============================================================
@@ -60,7 +54,6 @@ function Adicionar-Alerta {
     if (-not $Alertas.Contains($Mensagem)) {
         $Alertas.Add($Mensagem)
     }
-
 }
 
 
@@ -73,7 +66,6 @@ function Adicionar-Aviso {
     if (-not $Avisos.Contains($Mensagem)) {
         $Avisos.Add($Mensagem)
     }
-
 }
 
 
@@ -82,14 +74,12 @@ function Nivel-Atencao {
     if ($Resultado -eq "NORMAL") {
         $script:Resultado = "ATENÇÃO"
     }
-
 }
 
 
 function Nivel-Critico {
 
     $script:Resultado = "CRÍTICO"
-
 }
 
 
@@ -130,23 +120,26 @@ $Administrador = $Principal.IsInRole(
 
 if (-not $Administrador) {
 
-    Write-Host "AVISO: o PowerShell não está sendo executado como Administrador." `
+    Write-Host "AVISO: PowerShell não está sendo executado como Administrador." `
         -ForegroundColor Yellow
 
     Write-Host ""
-    Write-Host "Alguns testes poderão não fornecer todas as informações."
+    Write-Host "Algumas informações de confiabilidade podem não estar disponíveis."
     Write-Host ""
 }
 
 
 # ============================================================
-# IDENTIFICAR DISCO DO SISTEMA
+# UNIDADE DO SISTEMA
 # ============================================================
+
+Write-Host "UNIDADE DO SISTEMA" -ForegroundColor Cyan
+Mostrar-Linha
 
 $ParticaoSistema = Get-CimInstance Win32_LogicalDisk `
     -Filter "DeviceID='C:'"
 
-if ($ParticaoSistema) {
+if ($ParticaoSistema -and $ParticaoSistema.Size -gt 0) {
 
     $EspacoTotal = [math]::Round(
         $ParticaoSistema.Size / 1GB,
@@ -163,9 +156,6 @@ if ($ParticaoSistema) {
         1
     )
 
-    Write-Host "UNIDADE DO SISTEMA"
-    Mostrar-Linha
-
     Write-Host "Unidade       : C:"
     Write-Host "Capacidade    : $EspacoTotal GB"
     Write-Host "Espaço livre  : $EspacoLivre GB"
@@ -178,28 +168,33 @@ if ($ParticaoSistema) {
 
         Nivel-Atencao
     }
+
     elseif ($PercentualLivre -lt 15) {
 
         Adicionar-Aviso `
             "A unidade C: possui pouco espaço livre."
-
     }
 
-    Write-Host ""
 }
+else {
+
+    Adicionar-Aviso `
+        "Não foi possível obter os dados da unidade C:."
+}
+
+Write-Host ""
 
 
 # ============================================================
 # DISCOS FÍSICOS
 # ============================================================
 
-Write-Host ""
-Write-Host "DISCOS FÍSICOS"
+Write-Host "DISCOS FÍSICOS" -ForegroundColor Cyan
 Mostrar-Linha
 
-$Discos = Get-PhysicalDisk
+$Discos = @(Get-PhysicalDisk)
 
-if (-not $Discos) {
+if ($Discos.Count -eq 0) {
 
     Write-Host "Não foi possível consultar os discos físicos." `
         -ForegroundColor Red
@@ -220,11 +215,12 @@ else {
 
         Write-Host ""
 
-        # ----------------------------------------------------
-        # TIPO
-        # ----------------------------------------------------
 
-        switch ($Disco.MediaType) {
+        # ====================================================
+        # IDENTIFICAÇÃO DO TIPO
+        # ====================================================
+
+        switch ([string]$Disco.MediaType) {
 
             "HDD" {
                 $TipoMidia = "HD mecânico (HDD)"
@@ -239,28 +235,43 @@ else {
             }
 
             default {
-                $TipoMidia = "Não identificado"
+                $TipoMidia = "Não identificado pelo Windows"
             }
         }
+
+
+        # Detectar NVMe pelo barramento/modelo quando possível
+
+        if (
+            ([string]$Disco.BusType -eq "NVMe") -or
+            ([string]$Disco.FriendlyName -match "NVMe")
+        ) {
+
+            $TipoMidia = "SSD NVMe"
+        }
+
 
         $CapacidadeDisco = [math]::Round(
             $Disco.Size / 1GB,
             2
         )
 
+
         Write-Host "Tipo              : $TipoMidia"
         Write-Host "Modelo            : $($Disco.FriendlyName)"
         Write-Host "Fabricante        : $($Disco.Manufacturer)"
         Write-Host "Número de série   : $($Disco.SerialNumber)"
+        Write-Host "Barramento        : $($Disco.BusType)"
         Write-Host "Capacidade        : $CapacidadeDisco GB"
         Write-Host "HealthStatus      : $($Disco.HealthStatus)"
         Write-Host "OperationalStatus : $($Disco.OperationalStatus)"
 
-        # ----------------------------------------------------
-        # HEALTH STATUS
-        # ----------------------------------------------------
 
-        if ($Disco.HealthStatus -eq "Unhealthy") {
+        # ====================================================
+        # HEALTH STATUS
+        # ====================================================
+
+        if ([string]$Disco.HealthStatus -eq "Unhealthy") {
 
             Adicionar-Alerta `
                 "O disco '$($Disco.FriendlyName)' está com HealthStatus UNHEALTHY."
@@ -268,7 +279,7 @@ else {
             Nivel-Critico
         }
 
-        elseif ($Disco.HealthStatus -eq "Warning") {
+        elseif ([string]$Disco.HealthStatus -eq "Warning") {
 
             Adicionar-Alerta `
                 "O disco '$($Disco.FriendlyName)' está com HealthStatus WARNING."
@@ -276,7 +287,7 @@ else {
             Nivel-Atencao
         }
 
-        elseif ($Disco.HealthStatus -eq "Unknown") {
+        elseif ([string]$Disco.HealthStatus -eq "Unknown") {
 
             Adicionar-Aviso `
                 "O Windows não conseguiu determinar completamente a saúde de '$($Disco.FriendlyName)'."
@@ -288,13 +299,18 @@ else {
         # ====================================================
 
         Write-Host ""
-        Write-Host "Indicadores de confiabilidade:" `
+        Write-Host "INDICADORES DE CONFIABILIDADE" `
             -ForegroundColor Yellow
+
+        Mostrar-Linha
+
 
         $Contador = Get-StorageReliabilityCounter `
             -PhysicalDisk $Disco
 
+
         if ($Contador) {
+
 
             # ------------------------------------------------
             # TEMPERATURA
@@ -311,6 +327,7 @@ else {
 
                     Nivel-Critico
                 }
+
                 elseif ($Contador.Temperature -ge 60) {
 
                     Adicionar-Alerta `
@@ -318,6 +335,11 @@ else {
 
                     Nivel-Atencao
                 }
+
+            }
+            else {
+
+                Write-Host "Temperatura       : Não disponível"
             }
 
 
@@ -327,7 +349,12 @@ else {
 
             if ($null -ne $Contador.PowerOnHours) {
 
-                Write-Host "Horas ligado     : $($Contador.PowerOnHours) h"
+                Write-Host "Horas ligado      : $($Contador.PowerOnHours) h"
+            }
+
+            else {
+
+                Write-Host "Horas ligado      : Não disponível"
             }
 
 
@@ -339,20 +366,29 @@ else {
 
                 Write-Host "Desgaste          : $($Contador.Wear)%"
 
+                # O significado de Wear pode variar conforme
+                # fabricante e dispositivo.
+
                 if ($Contador.Wear -ge 90) {
 
                     Adicionar-Alerta `
-                        "Indicador de desgaste muito elevado: $($Contador.Wear)%."
+                        "Indicador de desgaste muito elevado no disco '$($Disco.FriendlyName)': $($Contador.Wear)%."
 
                     Nivel-Critico
                 }
+
                 elseif ($Contador.Wear -ge 80) {
 
                     Adicionar-Alerta `
-                        "Indicador de desgaste elevado: $($Contador.Wear)%."
+                        "Indicador de desgaste elevado no disco '$($Disco.FriendlyName)': $($Contador.Wear)%."
 
                     Nivel-Atencao
                 }
+            }
+
+            else {
+
+                Write-Host "Desgaste          : Não disponível"
             }
 
 
@@ -367,10 +403,15 @@ else {
                 if ($Contador.ReadErrorsUncorrected -gt 0) {
 
                     Adicionar-Alerta `
-                        "Existem erros de leitura não corrigidos."
+                        "Existem erros de leitura não corrigidos no disco '$($Disco.FriendlyName)'."
 
                     Nivel-Critico
                 }
+            }
+
+            else {
+
+                Write-Host "Erros leitura     : Não disponível"
             }
 
 
@@ -385,10 +426,15 @@ else {
                 if ($Contador.WriteErrorsUncorrected -gt 0) {
 
                     Adicionar-Alerta `
-                        "Existem erros de gravação não corrigidos."
+                        "Existem erros de gravação não corrigidos no disco '$($Disco.FriendlyName)'."
 
                     Nivel-Critico
                 }
+            }
+
+            else {
+
+                Write-Host "Erros gravação    : Não disponível"
             }
 
 
@@ -403,7 +449,7 @@ else {
                 if ($Contador.ReadLatencyMax -gt 10000) {
 
                     Adicionar-Alerta `
-                        "Latência máxima de leitura superior a 10 segundos."
+                        "Latência máxima de leitura superior a 10 segundos no disco '$($Disco.FriendlyName)'."
 
                     Nivel-Atencao
                 }
@@ -421,20 +467,21 @@ else {
                 if ($Contador.WriteLatencyMax -gt 10000) {
 
                     Adicionar-Alerta `
-                        "Latência máxima de gravação superior a 10 segundos."
+                        "Latência máxima de gravação superior a 10 segundos no disco '$($Disco.FriendlyName)'."
 
                     Nivel-Atencao
                 }
             }
 
         }
+
         else {
 
-            Write-Host "Contadores não disponíveis." `
+            Write-Host "Contadores        : Não disponíveis" `
                 -ForegroundColor Yellow
 
             Adicionar-Aviso `
-                "O dispositivo não forneceu todos os contadores de confiabilidade."
+                "Os contadores de confiabilidade não estão disponíveis para '$($Disco.FriendlyName)'."
         }
 
         Write-Host ""
@@ -453,8 +500,8 @@ Write-Host "VERIFICAÇÃO DO SISTEMA DE ARQUIVOS" `
 Mostrar-Linha
 
 Write-Host ""
-Write-Host "Executando CHKDSK /SCAN..."
-Write-Host "Este teste não executa correção automática."
+Write-Host "Executando CHKDSK /SCAN na unidade C:..."
+Write-Host "Este teste não executa /F nem /R."
 Write-Host ""
 
 $ChkDiskResultado = & chkdsk.exe C: /scan 2>&1
@@ -462,6 +509,7 @@ $ChkDiskResultado = & chkdsk.exe C: /scan 2>&1
 $ChkDiskTexto = $ChkDiskResultado -join "`n"
 
 Write-Host $ChkDiskTexto
+
 
 if ($LASTEXITCODE -ne 0) {
 
@@ -471,10 +519,14 @@ if ($LASTEXITCODE -ne 0) {
     Nivel-Atencao
 }
 
+
 if (
-    $ChkDiskTexto -match "Windows found problems" -or
-    $ChkDiskTexto -match "problemas" -and
-    $ChkDiskTexto -match "encontr"
+    ($ChkDiskTexto -match "Windows found problems") -or
+    ($ChkDiskTexto -match "found problems") -or
+    (
+        ($ChkDiskTexto -match "problemas") -and
+        ($ChkDiskTexto -match "encontr")
+    )
 ) {
 
     Adicionar-Alerta `
@@ -485,7 +537,7 @@ if (
 
 
 # ============================================================
-# EVENTOS DE DISCO
+# EVENTOS DE ARMAZENAMENTO
 # ============================================================
 
 Write-Host ""
@@ -499,101 +551,116 @@ Write-Host "Consultando eventos dos últimos 7 dias..."
 
 $DataInicio = (Get-Date).AddDays(-7)
 
-$EventosDisco = Get-WinEvent `
-    -FilterHashtable @{
-        LogName = "System"
-        StartTime = $DataInicio
-    } `
-    -ErrorAction SilentlyContinue |
+
+$EventosDisco = @(
+    Get-WinEvent `
+        -FilterHashtable @{
+            LogName = "System"
+            StartTime = $DataInicio
+        } `
+        -ErrorAction SilentlyContinue |
     Where-Object {
 
         $_.ProviderName -match `
         "disk|storahci|stornvme|iaStor|Ntfs|volmgr"
     }
+)
 
-$EventosErro = $EventosDisco |
+
+$EventosErro = @(
+    $EventosDisco |
     Where-Object {
+
         $_.LevelDisplayName -eq "Error" -or
         $_.LevelDisplayName -eq "Critical"
     }
+)
 
-$TotalEventos = @($EventosDisco).Count
-$TotalErros = @($EventosErro).Count
 
-Write-Host "Eventos encontrados : $TotalEventos"
-Write-Host "Erros críticos      : $TotalErros"
+Write-Host "Eventos encontrados : $($EventosDisco.Count)"
+Write-Host "Erros críticos      : $($EventosErro.Count)"
 
-if ($TotalErros -gt 0) {
+
+if ($EventosErro.Count -gt 0) {
 
     Write-Host ""
     Write-Host "Eventos de erro encontrados:" `
         -ForegroundColor Yellow
+
 
     $EventosErro |
         Select-Object -First 10 |
         ForEach-Object {
 
             Write-Host ""
-            Write-Host "Data: $($_.TimeCreated)"
-            Write-Host "Origem: $($_.ProviderName)"
-            Write-Host "ID: $($_.Id)"
+            Write-Host "Data    : $($_.TimeCreated)"
+            Write-Host "Origem  : $($_.ProviderName)"
+            Write-Host "ID      : $($_.Id)"
             Write-Host "Mensagem: $($_.Message)"
         }
+
 
     Adicionar-Alerta `
         "Foram encontrados eventos de erro relacionados ao armazenamento nos últimos 7 dias."
 
     Nivel-Atencao
+
 }
 else {
 
+    Write-Host ""
     Write-Host "Nenhum erro crítico de armazenamento encontrado." `
         -ForegroundColor Green
 }
 
 
 # ============================================================
-# TESTE DE DESEMPENHO / LEITURA
+# TESTE DE LEITURA - SEM ESCRITA
 # ============================================================
 
 Write-Host ""
-Write-Host "TESTE DE DESEMPENHO DO DISCO" `
+Write-Host "TESTE DE LEITURA / DESEMPENHO" `
     -ForegroundColor Cyan
 
 Mostrar-Linha
 
 Write-Host ""
+Write-Host "Este teste não cria arquivo temporário"
+Write-Host "e não grava dados no disco."
+Write-Host ""
 
-$WinSAT = Get-Command winsat.exe -ErrorAction SilentlyContinue
+
+$WinSAT = Get-Command winsat.exe `
+    -ErrorAction SilentlyContinue
+
 
 if ($WinSAT) {
 
-    Write-Host "Executando avaliação de armazenamento do Windows..."
+    Write-Host "Executando teste de leitura do Windows..."
     Write-Host "Aguarde..."
     Write-Host ""
 
-    $WinSATResultado = & winsat.exe disk -drive c 2>&1
 
-    Write-Host $WinSATResultado
+    # Somente operações de leitura.
+    #
+    # Não utilizar:
+    #
+    # winsat disk -drive c
+    #
+    # porque a avaliação completa pode incluir operações
+    # de gravação.
 
-    # --------------------------------------------------------
-    # TENTAR IDENTIFICAR RESULTADOS
-    # --------------------------------------------------------
+    $WinSATResultado = & winsat.exe `
+        disk `
+        -drive c `
+        -seq -read `
+        -ran -read `
+        2>&1
 
-    $ResultadosMB = @()
 
-    foreach ($Linha in $WinSATResultado) {
+    $WinSATTexto = $WinSATResultado -join "`n"
 
-        if (
-            $Linha -match "Sequential Read" -or
-            $Linha -match "Sequential Write" -or
-            $Linha -match "Random Read" -or
-            $Linha -match "Random Write"
-        ) {
-
-            Write-Host $Linha
-        }
-    }
+    Write-Host $WinSATTexto
 
 }
 else {
@@ -602,124 +669,7 @@ else {
         -ForegroundColor Yellow
 
     Adicionar-Aviso `
-        "O WinSAT não está disponível para realizar o teste de desempenho."
-}
-
-
-# ============================================================
-# TESTE DE LATÊNCIA
-# ============================================================
-
-Write-Host ""
-Write-Host "TESTE SIMPLES DE ACESSO AO DISCO" `
-    -ForegroundColor Cyan
-
-Mostrar-Linha
-
-Write-Host ""
-
-$ArquivoTeste = Join-Path $env:TEMP "LR_Tecnologia_Disco_Test.tmp"
-
-try {
-
-    $TamanhoTesteMB = 100
-
-    Write-Host "Criando arquivo temporário de teste: $TamanhoTesteMB MB"
-    Write-Host "O arquivo será removido ao final."
-
-    $Dados = New-Object byte[] (1MB)
-
-    $Stream = [System.IO.File]::Open(
-        $ArquivoTeste,
-        [System.IO.FileMode]::Create,
-        [System.IO.FileAccess]::Write,
-        [System.IO.FileShare]::None
-    )
-
-    $Cronometro = [System.Diagnostics.Stopwatch]::StartNew()
-
-    for ($i = 0; $i -lt $TamanhoTesteMB; $i++) {
-
-        $Stream.Write($Dados, 0, $Dados.Length)
-    }
-
-    $Stream.Flush()
-    $Stream.Close()
-
-    $Cronometro.Stop()
-
-    $TempoEscrita = $Cronometro.Elapsed.TotalSeconds
-
-    if ($TempoEscrita -gt 0) {
-
-        $VelocidadeEscrita = [math]::Round(
-            $TamanhoTesteMB / $TempoEscrita,
-            2
-        )
-
-        Write-Host ""
-        Write-Host "Velocidade aproximada de gravação:"
-        Write-Host "$VelocidadeEscrita MB/s"
-    }
-
-
-    # --------------------------------------------------------
-    # TESTE DE LEITURA
-    # --------------------------------------------------------
-
-    $Buffer = New-Object byte[] (1MB)
-
-    $Stream = [System.IO.File]::Open(
-        $ArquivoTeste,
-        [System.IO.FileMode]::Open,
-        [System.IO.FileAccess]::Read,
-        [System.IO.FileShare]::Read
-    )
-
-    $Cronometro.Restart()
-
-    while ($Stream.Read($Buffer, 0, $Buffer.Length) -gt 0) {
-        # leitura
-    }
-
-    $Stream.Close()
-
-    $Cronometro.Stop()
-
-    $TempoLeitura = $Cronometro.Elapsed.TotalSeconds
-
-    if ($TempoLeitura -gt 0) {
-
-        $VelocidadeLeitura = [math]::Round(
-            $TamanhoTesteMB / $TempoLeitura,
-            2
-        )
-
-        Write-Host ""
-        Write-Host "Velocidade aproximada de leitura:"
-        Write-Host "$VelocidadeLeitura MB/s"
-    }
-
-
-}
-catch {
-
-    Write-Host ""
-    Write-Host "Não foi possível realizar o teste temporário." `
-        -ForegroundColor Yellow
-
-    Adicionar-Aviso `
-        "O teste temporário de leitura/gravação não pôde ser concluído."
-}
-finally {
-
-    if (Test-Path $ArquivoTeste) {
-
-        Remove-Item `
-            $ArquivoTeste `
-            -Force `
-            -ErrorAction SilentlyContinue
-    }
+        "O WinSAT não está disponível para realizar o teste de leitura."
 }
 
 
@@ -733,25 +683,34 @@ $Duracao = New-TimeSpan `
     -Start $Inicio `
     -End $Fim
 
+
 Write-Host ""
 Write-Host ""
+
 Write-Host "============================================================"
 
-if ($Resultado -eq "NORMAL") {
 
-    Write-Host "                 RESULTADO: NORMAL" `
-        -ForegroundColor Green
-}
-elseif ($Resultado -eq "ATENÇÃO") {
+switch ($Resultado) {
 
-    Write-Host "                 RESULTADO: ATENÇÃO" `
-        -ForegroundColor Yellow
-}
-else {
+    "NORMAL" {
 
-    Write-Host "                 RESULTADO: CRÍTICO" `
-        -ForegroundColor Red
+        Write-Host "                 RESULTADO: NORMAL" `
+            -ForegroundColor Green
+    }
+
+    "ATENÇÃO" {
+
+        Write-Host "                 RESULTADO: ATENÇÃO" `
+            -ForegroundColor Yellow
+    }
+
+    "CRÍTICO" {
+
+        Write-Host "                 RESULTADO: CRÍTICO" `
+            -ForegroundColor Red
+    }
 }
+
 
 Write-Host "============================================================"
 Write-Host ""
@@ -766,6 +725,7 @@ if ($Alertas.Count -gt 0) {
     Write-Host "INDICADORES ENCONTRADOS:" `
         -ForegroundColor Yellow
 
+
     foreach ($Alerta in $Alertas) {
 
         Write-Host ""
@@ -775,7 +735,8 @@ if ($Alertas.Count -gt 0) {
 }
 else {
 
-    Write-Host "Nenhum indicador crítico foi identificado." `
+    Write-Host `
+        "Nenhum indicador relevante foi identificado nos testes realizados." `
         -ForegroundColor Green
 }
 
@@ -790,6 +751,7 @@ if ($Avisos.Count -gt 0) {
     Write-Host "OBSERVAÇÕES:" `
         -ForegroundColor Cyan
 
+
     foreach ($Aviso in $Avisos) {
 
         Write-Host ""
@@ -803,39 +765,49 @@ if ($Avisos.Count -gt 0) {
 # ============================================================
 
 Write-Host ""
-Write-Host "RECOMENDAÇÃO:" -ForegroundColor Cyan
+Write-Host "RECOMENDAÇÃO:" `
+    -ForegroundColor Cyan
+
 Write-Host ""
+
 
 switch ($Resultado) {
 
     "NORMAL" {
 
-        Write-Host "Não foram encontrados indícios relevantes de falha"
-        Write-Host "nos testes realizados."
+        Write-Host `
+            "Não foram encontrados indícios relevantes de falha nos testes realizados."
 
         Write-Host ""
-        Write-Host "Manter backup periódico dos dados."
+
+        Write-Host `
+            "Manter backup periódico dos dados."
     }
+
 
     "ATENÇÃO" {
 
-        Write-Host "Foram encontrados indicadores que merecem investigação."
+        Write-Host `
+            "Foram encontrados indicadores que merecem investigação."
 
         Write-Host ""
+
         Write-Host "Recomenda-se:"
         Write-Host "1. Fazer backup dos dados importantes."
-        Write-Host "2. Investigar os alertas apresentados."
+        Write-Host "2. Investigar os indicadores apresentados."
         Write-Host "3. Repetir o diagnóstico se necessário."
-        Write-Host "4. Considerar teste específico do fabricante."
+        Write-Host "4. Considerar ferramenta específica do fabricante."
     }
+
 
     "CRÍTICO" {
 
-        Write-Host "Foram encontrados indicadores compatíveis com"
-        Write-Host "possível problema no armazenamento." `
+        Write-Host `
+            "Foram encontrados indicadores compatíveis com possível problema no armazenamento." `
             -ForegroundColor Red
 
         Write-Host ""
+
         Write-Host "RECOMENDAÇÃO IMEDIATA:"
         Write-Host "1. Fazer backup dos dados."
         Write-Host "2. Evitar operações desnecessárias no disco."
@@ -851,15 +823,27 @@ switch ($Resultado) {
 
 Write-Host ""
 Write-Host "============================================================"
+
 Write-Host "Diagnóstico concluído."
-Write-Host "Tempo total: $($Duracao.Minutes) min $($Duracao.Seconds) s"
+
+Write-Host `
+    "Tempo total: $($Duracao.Minutes) min $($Duracao.Seconds) s"
+
 Write-Host "============================================================"
+
 Write-Host ""
 
 Write-Host "IMPORTANTE:"
-Write-Host "Este diagnóstico não garante que o disco não irá falhar."
-Write-Host "Ele avalia somente os indicadores disponibilizados pelo"
-Write-Host "Windows e pelo dispositivo durante este teste."
+
+Write-Host `
+    "Este diagnóstico não garante que o disco não irá falhar."
+
+Write-Host `
+    "Ele avalia somente os indicadores disponibilizados pelo"
+
+Write-Host `
+    "Windows e pelo dispositivo durante este teste."
+
 Write-Host ""
 
 pause
