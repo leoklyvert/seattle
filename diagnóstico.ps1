@@ -6,18 +6,15 @@
 #
 # SOMENTE LEITURA
 #
-# Fluxo:
-#   Cliente Existente
-#       ├── Contrato Mensal
-#       └── Sem Contrato / Particular
-#
-#   Cliente Novo
+# O diagnóstico coleta informações técnicas do computador.
+# Não solicita cadastro ou identificação de cliente.
 #
 # O inventário é enviado para a HostGator.
 # Não mantém inventário permanente no computador cliente.
 # ============================================================
 
 $ErrorActionPreference = "SilentlyContinue"
+
 
 # ============================================================
 # CONFIGURAÇÃO
@@ -29,281 +26,38 @@ $UrlServidor = "https://lrtecnologia.net.br/seattle/receber_inventario.php"
 # Esta chave deve ser a mesma configurada no PHP.
 $ChaveSeattle = ")#twPMPaKsj>d23}y3covTxvmr1Ht*EA3iHc=WQQEFVB424H>}"
 
+
 # ============================================================
 # FUNÇÕES
 # ============================================================
 
 function Obter-TipoMemoria {
+
     param($Codigo)
 
     switch ($Codigo) {
+
         20 { return "DDR" }
         21 { return "DDR2" }
         24 { return "DDR3" }
         26 { return "DDR4" }
         30 { return "DDR5" }
-        default { return "Desconhecido" }
+
+        default {
+            return "Desconhecido"
+        }
     }
 }
+
 
 function Pausar-Diagnostico {
 
     Write-Host ""
     Write-Host "Pressione qualquer tecla para continuar..." -ForegroundColor Gray
+
     [System.Console]::ReadKey($true) | Out-Null
 }
 
-# ============================================================
-# MENU CLIENTE
-# ============================================================
-
-function Selecionar-Cliente {
-
-    while ($true) {
-
-        Clear-Host
-
-        Write-Host ""
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host "              DIAGNÓSTICO PREVENTIVO" -ForegroundColor Cyan
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host ""
-
-        Write-Host "1 - Cliente Existente" -ForegroundColor White
-        Write-Host "2 - Cliente Novo" -ForegroundColor White
-        Write-Host "0 - Voltar" -ForegroundColor White
-        Write-Host ""
-
-        Write-Host "Escolha uma opção: " -ForegroundColor Yellow -NoNewline
-
-        $Tecla = [System.Console]::ReadKey($true)
-
-        switch ($Tecla.KeyChar) {
-
-            "1" {
-
-                return Selecionar-ClienteExistente
-            }
-
-            "2" {
-
-                return Selecionar-ClienteNovo
-            }
-
-            "0" {
-
-                return $null
-            }
-        }
-    }
-}
-
-# ============================================================
-# CLIENTE EXISTENTE
-# ============================================================
-
-function Selecionar-ClienteExistente {
-
-    while ($true) {
-
-        Clear-Host
-
-        Write-Host ""
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host "                  CLIENTE EXISTENTE" -ForegroundColor Cyan
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host ""
-
-        Write-Host "1 - Contrato Mensal"
-        Write-Host "2 - Sem Contrato / Particular"
-        Write-Host "0 - Voltar"
-        Write-Host ""
-
-        Write-Host "Escolha uma opção: " -ForegroundColor Yellow -NoNewline
-
-        $Tecla = [System.Console]::ReadKey($true)
-
-        switch ($Tecla.KeyChar) {
-
-            "1" {
-
-                return Selecionar-ContratoMensal
-            }
-
-            "2" {
-
-                return Selecionar-Particular
-            }
-
-            "0" {
-
-                return $null
-            }
-        }
-    }
-}
-
-# ============================================================
-# CLIENTES DE CONTRATO
-# ============================================================
-
-function Selecionar-ContratoMensal {
-
-    $Clientes = @(
-        "A Casa do Panificador",
-        "Escritório Real de Contabilidade",
-        "Impacto Contabilidade",
-        "Futura Contabilidade"
-    )
-
-    while ($true) {
-
-        Clear-Host
-
-        Write-Host ""
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host "                 CONTRATO MENSAL" -ForegroundColor Cyan
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host ""
-
-        for ($i = 0; $i -lt $Clientes.Count; $i++) {
-
-            Write-Host "$($i + 1) - $($Clientes[$i])"
-        }
-
-        Write-Host ""
-        Write-Host "0 - Voltar"
-        Write-Host ""
-
-        Write-Host "Escolha o cliente: " -ForegroundColor Yellow -NoNewline
-
-        $Tecla = [System.Console]::ReadKey($true)
-
-        switch ($Tecla.KeyChar) {
-
-            "1" {
-
-                return [PSCustomObject]@{
-                    cliente     = $Clientes[0]
-                    tipo_cliente = "Existente"
-                    contrato    = "Mensal"
-                }
-            }
-
-            "2" {
-
-                return [PSCustomObject]@{
-                    cliente     = $Clientes[1]
-                    tipo_cliente = "Existente"
-                    contrato    = "Mensal"
-                }
-            }
-
-            "3" {
-
-                return [PSCustomObject]@{
-                    cliente     = $Clientes[2]
-                    tipo_cliente = "Existente"
-                    contrato    = "Mensal"
-                }
-            }
-
-            "4" {
-
-                return [PSCustomObject]@{
-                    cliente     = $Clientes[3]
-                    tipo_cliente = "Existente"
-                    contrato    = "Mensal"
-                }
-            }
-
-            "0" {
-
-                return $null
-            }
-        }
-    }
-}
-
-# ============================================================
-# PARTICULAR
-# ============================================================
-
-function Selecionar-Particular {
-
-    while ($true) {
-
-        Clear-Host
-
-        Write-Host ""
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host "             SEM CONTRATO / PARTICULAR" -ForegroundColor Cyan
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host ""
-
-        Write-Host "Digite o nome do cliente:"
-        Write-Host ""
-
-        $Nome = Read-Host "Cliente"
-
-        if (-not [string]::IsNullOrWhiteSpace($Nome)) {
-
-            return [PSCustomObject]@{
-                cliente      = $Nome.Trim()
-                tipo_cliente = "Existente"
-                contrato     = "Sem Contrato"
-            }
-        }
-
-        Write-Host ""
-        Write-Host "Nome inválido." -ForegroundColor Red
-        Pausar-Diagnostico
-    }
-}
-
-# ============================================================
-# CLIENTE NOVO
-# ============================================================
-
-function Selecionar-ClienteNovo {
-
-    Clear-Host
-
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "                    CLIENTE NOVO" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host ""
-
-    $Nome = Read-Host "Nome do cliente"
-
-    if ([string]::IsNullOrWhiteSpace($Nome)) {
-
-        Write-Host ""
-        Write-Host "Nome inválido." -ForegroundColor Red
-
-        Pausar-Diagnostico
-
-        return $null
-    }
-
-    return [PSCustomObject]@{
-        cliente      = $Nome.Trim()
-        tipo_cliente = "Novo"
-        contrato     = "Novo Cliente"
-    }
-}
-
-# ============================================================
-# SELECIONA CLIENTE
-# ============================================================
-
-$DadosCliente = Selecionar-Cliente
-
-if ($null -eq $DadosCliente) {
-
-    return
-}
 
 # ============================================================
 # CABEÇALHO
@@ -322,16 +76,6 @@ Write-Host "       Não remove programas" -ForegroundColor Gray
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
 
-Write-Host "Cliente   : " -NoNewline
-Write-Host $DadosCliente.cliente -ForegroundColor Yellow
-
-Write-Host "Categoria : " -NoNewline
-Write-Host $DadosCliente.tipo_cliente -ForegroundColor Yellow
-
-Write-Host "Contrato  : " -NoNewline
-Write-Host $DadosCliente.contrato -ForegroundColor Yellow
-
-Write-Host ""
 
 # ============================================================
 # IDENTIFICAÇÃO
@@ -345,9 +89,11 @@ $SO = Get-CimInstance Win32_OperatingSystem
 
 $Computador = $env:COMPUTERNAME
 $Usuario = $env:USERNAME
+
 $Fabricante = $Sistema.Manufacturer
 $Modelo = $Sistema.Model
 $Serial = $BIOS.SerialNumber
+
 
 # ============================================================
 # WINDOWS
@@ -362,6 +108,7 @@ $VersaoWindows = "$($Windows.ProductName) $($Windows.DisplayVersion)"
 
 $BuildWindows = $Windows.CurrentBuild
 $UBRWindows = $Windows.UBR
+
 
 # ============================================================
 # TEMPO LIGADO
@@ -399,6 +146,7 @@ try {
 }
 catch {}
 
+
 # ============================================================
 # CPU
 # ============================================================
@@ -427,6 +175,7 @@ try {
         )
 }
 catch {}
+
 
 # ============================================================
 # RAM
@@ -504,6 +253,7 @@ try {
     )
 }
 catch {}
+
 
 # ============================================================
 # DISCOS FÍSICOS
@@ -670,6 +420,7 @@ catch {
     )
 }
 
+
 # ============================================================
 # DISCOS LÓGICOS
 # ============================================================
@@ -716,6 +467,7 @@ foreach (
     }
 }
 
+
 # ============================================================
 # PROGRAMAS DE INICIALIZAÇÃO
 # ============================================================
@@ -730,6 +482,7 @@ try {
     )
 }
 catch {}
+
 
 # ============================================================
 # PROCESSOS COM MAIOR CONSUMO
@@ -760,6 +513,7 @@ try {
     )
 }
 catch {}
+
 
 # ============================================================
 # EVENTOS RECENTES
@@ -793,6 +547,7 @@ try {
     )
 }
 catch {}
+
 
 # ============================================================
 # ALERTAS
@@ -847,6 +602,7 @@ foreach ($DF in $DiscosFisicos) {
     }
 }
 
+
 # ============================================================
 # OBJETO DO INVENTÁRIO
 # ============================================================
@@ -856,15 +612,6 @@ $Objeto =
 
         data =
             Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-
-        cliente =
-            $DadosCliente.cliente
-
-        tipo_cliente =
-            $DadosCliente.tipo_cliente
-
-        contrato =
-            $DadosCliente.contrato
 
         computador =
             $Computador
@@ -967,6 +714,7 @@ $Objeto =
             $Alertas
     }
 
+
 # ============================================================
 # JSON
 # ============================================================
@@ -977,6 +725,7 @@ Write-Host "Preparando inventário..." -ForegroundColor Yellow
 $JSON =
     $Objeto |
     ConvertTo-Json -Depth 15
+
 
 # ============================================================
 # ENVIO
@@ -1032,6 +781,7 @@ catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
 }
 
+
 # ============================================================
 # RESUMO
 # ============================================================
@@ -1041,15 +791,6 @@ Write-Host "============================================================" -Foreg
 Write-Host "                 DIAGNÓSTICO FINALIZADO" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
-
-Write-Host "Cliente    : " -NoNewline
-Write-Host $DadosCliente.cliente -ForegroundColor Yellow
-
-Write-Host "Categoria  : " -NoNewline
-Write-Host $DadosCliente.tipo_cliente -ForegroundColor Yellow
-
-Write-Host "Contrato   : " -NoNewline
-Write-Host $DadosCliente.contrato -ForegroundColor Yellow
 
 Write-Host "Computador : " -NoNewline
 Write-Host $Computador -ForegroundColor Yellow
@@ -1083,6 +824,7 @@ else {
 
     Write-Host $StatusServidor -ForegroundColor Red
 }
+
 
 # ============================================================
 # ALERTAS
