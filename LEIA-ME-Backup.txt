@@ -1,0 +1,57 @@
+BACKUP DO PERFIL DO WINDOWS
+
+COMO INICIAR
+1. Extraia os arquivos para uma pasta no computador de atendimento.
+2. Conecte o HD externo.
+3. Abra Iniciar-Backup.cmd.
+4. Selecione uma pasta no HD externo e clique em Iniciar backup.
+
+COMO RESTAURAR
+1. Abra Iniciar-Restauracao.cmd no computador do cliente.
+2. Selecione a pasta Backup-USUARIO-DATA no HD externo.
+3. Marque as categorias que deseja restaurar e clique em Restaurar selecionados.
+4. Confirme a operação. As categorias padrão voltam para as pastas equivalentes
+   do usuário conectado. Pastas adicionais voltam ao caminho original registrado
+   no backup. Feche os navegadores se for restaurar favoritos.
+5. Confira restore.log na pasta do backup.
+
+O QUE É COPIADO
+Área de Trabalho, Documentos, Downloads, Contatos, Favoritos, Imagens,
+Músicas e Vídeos do usuário atualmente conectado ao Windows. Também são
+copiados os arquivos de favoritos dos perfis encontrados do Edge, Chrome e
+Firefox. Os arquivos ficam em Browser-Favorites, dentro da pasta de backup.
+Na janela, adicione uma ou mais pastas de qualquer unidade para copiar somente
+essas pastas. Nesse modo, as pastas padrão do perfil, favoritos dos navegadores
+e Wi-Fi não são copiados. Se não adicionar pastas, é feito o backup padrão
+completo descrito acima. Pastas extras ficam em Custom-Folders e
+Custom-Folders.json registra os caminhos para permitir a restauração no mesmo local.
+Também são exportados os perfis de Wi-Fi salvos no Windows, incluindo SSIDs
+e senhas, em WiFi-Profiles.
+Os arquivos são colocados em uma pasta Backup-USUARIO-DATA no destino
+selecionado. Um backup.log é criado nessa pasta.
+
+COMPORTAMENTO
+- Cada execução cria uma pasta nova, identificada pelo computador, usuário e data/hora.
+- A barra mostra o percentual aproximado por volume de dados copiados e uma
+  estimativa de tempo restante; ambos podem variar conforme o HD e a quantidade
+  de arquivos. A estimativa começa depois do cálculo do tamanho das pastas.
+- Feche Edge, Chrome e Firefox quando a ferramenta pedir, antes de iniciar.
+- Os arquivos de Wi-Fi contêm senhas em texto legível. Restrinja o acesso ao
+  HD externo e não compartilhe os XMLs. A exportação pode depender de
+  privilégios do Windows e de um adaptador Wi-Fi disponível.
+- A ferramenta copia arquivos e subpastas, inclusive pastas vazias.
+- O botão Cancelar backup interrompe a cópia em andamento. A pasta parcial fica
+  no HD externo e é identificada como cancelada no backup.log; não a use como backup completo.
+- Não apaga arquivos do HD externo nem espelha exclusões do computador.
+- A restauração pode substituir arquivos de mesmo nome no destino, mas não apaga
+  arquivos que existam apenas no computador. Ela restaura por categoria/pasta.
+- Não inclui programas instalados, configurações completas do Windows,
+  dados de outros perfis do Windows, pastas adicionais que não forem escolhidas,
+  favoritos dos navegadores e perfis Wi-Fi, ou arquivos em nuvem
+  que ainda não estejam baixados no computador.
+- O HD precisa ter espaço suficiente. Mantenha-o conectado durante o processo.
+- Confira backup.log e alguns arquivos copiados antes de encerrar o atendimento.
+
+PRIVACIDADE
+O backup pode conter dados pessoais de clientes e do usuário. Guarde o HD com
+acesso restrito e siga os procedimentos de retenção e descarte da sua empresa.

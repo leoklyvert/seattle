@@ -54,13 +54,13 @@ $removeCustom.Enabled = $false
 $form.Controls.Add($removeCustom)
 
 $status = New-Object System.Windows.Forms.Label
-$status.Text = 'Inclui 8 pastas, favoritos dos navegadores e perfis Wi-Fi salvos.'
+$status.Text = 'Lista vazia: perfil padrão. Com pastas escolhidas: copia somente as selecionadas.'
 $status.Location = New-Object System.Drawing.Point(18, 222)
 $status.Size = New-Object System.Drawing.Size(740, 24)
 $form.Controls.Add($status)
 
 $privacy = New-Object System.Windows.Forms.Label
-$privacy.Text = 'A exportação Wi-Fi contém senhas em texto legível no HD externo.'
+$privacy.Text = 'No backup padrão, o Wi-Fi exportado contém senhas legíveis no HD externo.'
 $privacy.Location = New-Object System.Drawing.Point(18, 248)
 $privacy.Size = New-Object System.Drawing.Size(740, 22)
 $privacy.ForeColor = [System.Drawing.Color]::DarkRed
@@ -94,11 +94,19 @@ $close.Size = New-Object System.Drawing.Size(90, 36)
 $form.Controls.Add($close)
 $close.Add_Click({ $form.Close() })
 
+$cancel = New-Object System.Windows.Forms.Button
+$cancel.Text = 'Cancelar backup'
+$cancel.Location = New-Object System.Drawing.Point(278, 350)
+$cancel.Size = New-Object System.Drawing.Size(135, 36)
+$cancel.Enabled = $false
+$form.Controls.Add($cancel)
+
 $picker = New-Object System.Windows.Forms.FolderBrowserDialog
 $picker.Description = 'Selecione uma pasta no HD externo. O backup será criado dentro dela.'
 $picker.ShowNewFolderButton = $true
 $script:destinationRoot = $null
 $script:customFolderPaths = New-Object System.Collections.ArrayList
+$script:cancelRequested = $false
 $customPicker = New-Object System.Windows.Forms.FolderBrowserDialog
 $customPicker.Description = 'Selecione qualquer pasta que deseja acrescentar ao backup.'
 $customPicker.ShowNewFolderButton = $false
@@ -150,6 +158,7 @@ $addCustom.Add_Click({
         $null = $script:customFolderPaths.Add($selected)
         $null = $customList.Items.Add($selected)
         $removeCustom.Enabled = $true
+        $status.Text = "Modo pastas escolhidas: serão copiadas somente $($script:customFolderPaths.Count) pasta(s)."
     }
 })
 
@@ -160,6 +169,18 @@ $removeCustom.Add_Click({
         $customList.Items.RemoveAt($index)
     }
     $removeCustom.Enabled = ($customList.Items.Count -gt 0)
+    if ($script:customFolderPaths.Count -eq 0) {
+        $status.Text = 'Lista vazia: perfil padrão. Com pastas escolhidas: copia somente as selecionadas.'
+    } else {
+        $status.Text = "Modo pastas escolhidas: serão copiadas somente $($script:customFolderPaths.Count) pasta(s)."
+    }
+})
+
+$cancel.Add_Click({
+    $script:cancelRequested = $true
+    $cancel.Enabled = $false
+    $status.Text = 'Cancelando… interrompendo a cópia atual.'
+    [System.Windows.Forms.Application]::DoEvents()
 })
 
 $start.Add_Click({
@@ -168,10 +189,13 @@ $start.Add_Click({
     $start.Enabled = $false
     $choose.Enabled = $false
     $close.Enabled = $false
+    $cancel.Enabled = $true
+    $script:cancelRequested = $false
     try {
         $timestamp = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
         $userName = $env:USERNAME -replace '[\\/:*?"<>|]', '_'
-        $backupRoot = Join-Path $script:destinationRoot ("Backup-{0}-{1}" -f $userName, $timestamp)
+        $computerName = $env:COMPUTERNAME -replace '[\\/:*?"<>|]', '_'
+        $backupRoot = Join-Path $script:destinationRoot ("Backup-{0}-{1}-{2}" -f $computerName, $userName, $timestamp)
         $null = New-Item -ItemType Directory -Path $backupRoot -ErrorAction Stop
         $logPath = Join-Path $backupRoot 'backup.log'
 
@@ -191,7 +215,7 @@ $start.Add_Click({
             }
         } catch { }
 
-        $folders = @(
+        $profileFolders = @(
             @{ Id = 'Desktop'; Name = 'Área de Trabalho'; Source = [Environment]::GetFolderPath('Desktop'); TargetRelative = 'Desktop' },
             @{ Id = 'Documents'; Name = 'Documentos'; Source = [Environment]::GetFolderPath('MyDocuments'); TargetRelative = 'Documents' },
             @{ Id = 'Downloads'; Name = 'Downloads'; Source = $downloads; TargetRelative = 'Downloads' },
@@ -201,6 +225,12 @@ $start.Add_Click({
             @{ Id = 'Music'; Name = 'Músicas'; Source = [Environment]::GetFolderPath('MyMusic'); TargetRelative = 'Music' },
             @{ Id = 'Videos'; Name = 'Vídeos'; Source = [Environment]::GetFolderPath('MyVideos'); TargetRelative = 'Videos' }
         )
+        if ($script:customFolderPaths.Count -eq 0) {
+            $folders = @($profileFolders)
+        } else {
+            $folders = @()
+            "MODO: somente pastas adicionais selecionadas ($($script:customFolderPaths.Count)); pastas padrão, navegadores e Wi-Fi não serão incluídos." | Add-Content -LiteralPath $logPath -Encoding UTF8
+        }
 
         $customManifest = @()
         $customIndex = 0
@@ -238,6 +268,7 @@ $start.Add_Click({
 
         "Backup iniciado: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`r`nUsuário: $env:USERDOMAIN\$env:USERNAME`r`nDestino: $backupRoot`r`n" | Set-Content -LiteralPath $logPath -Encoding UTF8
         $failures = @()
+        $wasCancelled = $false
         foreach ($folder in $folders) {
             $source = [Environment]::ExpandEnvironmentVariables($folder.Source)
             $target = Join-Path $backupRoot $folder.TargetRelative
@@ -252,6 +283,11 @@ $start.Add_Click({
             $copyProcess = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\robocopy.exe') -ArgumentList $argumentLine -WindowStyle Hidden -PassThru
             while (-not $copyProcess.HasExited) {
                 [System.Windows.Forms.Application]::DoEvents()
+                if ($script:cancelRequested) {
+                    try { $copyProcess.Kill(); $copyProcess.WaitForExit() } catch { }
+                    $wasCancelled = $true
+                    break
+                }
                 Start-Sleep -Milliseconds 900
                 $currentBytes = Get-TreeBytes $target
                 $measuredBytes = [Math]::Min($totalBytes, ($completedBytes + $currentBytes))
@@ -266,6 +302,10 @@ $start.Add_Click({
                     $progressText.Text = "Copiando $($folder.Name)…"
                 }
             }
+            if ($wasCancelled) {
+                'BACKUP CANCELADO PELO USUÁRIO. A pasta contém uma cópia parcial; não considere este backup concluído.' | Add-Content -LiteralPath $logPath -Encoding UTF8
+                break
+            }
             $copyProcess.Refresh()
             $copyCode = $copyProcess.ExitCode
             if ($copyCode -ge 8) {
@@ -274,6 +314,7 @@ $start.Add_Click({
             $completedBytes += $folderSizes[$folder.Id]
         }
 
+        if (-not $wasCancelled -and $script:customFolderPaths.Count -eq 0) {
         $browserRoot = Join-Path $backupRoot 'Browser-Favorites'
         $browserProfiles = @(
             @{ Name = 'Edge'; Root = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data'; Type = 'Chromium' },
@@ -333,8 +374,16 @@ $start.Add_Click({
             'AVISO: não foi possível confirmar a exportação dos perfis Wi-Fi. Verifique privilégios e adaptador Wi-Fi.' | Add-Content -LiteralPath $logPath -Encoding UTF8
             $failures += 'Wi-Fi'
         }
+        } elseif ($wasCancelled) {
+            'PULADO: favoritos dos navegadores e perfis Wi-Fi — backup cancelado.' | Add-Content -LiteralPath $logPath -Encoding UTF8
+        } else {
+            'PULADO: favoritos dos navegadores e perfis Wi-Fi — modo de cópia somente das pastas selecionadas.' | Add-Content -LiteralPath $logPath -Encoding UTF8
+        }
 
-        if ($failures.Count -eq 0) {
+        if ($wasCancelled) {
+            $status.Text = 'Backup cancelado. A cópia parcial foi mantida no HD externo.'
+            [System.Windows.Forms.MessageBox]::Show("Backup cancelado. A cópia parcial foi mantida e não deve ser usada como backup completo.`r`n`r`nPasta:`r`n$backupRoot`r`n`r`nConsulte backup.log.", 'Backup cancelado', 'OK', 'Warning') | Out-Null
+        } elseif ($failures.Count -eq 0) {
             $status.Text = 'Backup concluído.'
             $progressBar.Value = 100
             $progressText.Text = '100% — backup concluído.'
@@ -352,6 +401,7 @@ $start.Add_Click({
         $start.Enabled = $true
         $choose.Enabled = $true
         $close.Enabled = $true
+        $cancel.Enabled = $false
     }
 })
 
