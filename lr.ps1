@@ -82,6 +82,11 @@ function Obter-Modulo {
             throw "O arquivo retornado está vazio."
         }
 
+        # Remove BOM inicial para o Invoke-Expression não tratá-lo como comando.
+        if ($Codigo.Length -gt 0 -and $Codigo[0] -eq [char]0xFEFF) {
+            $Codigo = $Codigo.Substring(1)
+        }
+
         return $Codigo
     }
     catch {
