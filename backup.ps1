@@ -1,4 +1,4 @@
-# Módulo de backup e restauração do Seattle
+﻿# Módulo de backup e restauração do Seattle
 $ErrorActionPreference = 'Stop'
 $GitHubBase = 'https://raw.githubusercontent.com/leoklyvert/seattle/main'
 $TempRoot = Join-Path $env:TEMP ('Seattle-Backup-' + [guid]::NewGuid().ToString('N'))
@@ -68,5 +68,4 @@ try {
 finally {
     Remove-Item -LiteralPath $TempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
-
 

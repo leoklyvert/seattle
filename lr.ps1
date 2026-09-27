@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # SEATTLE - LR TECNOLOGIA
 # Módulo principal
 # Criado e desenvolvido por Leonardo M. Batista
@@ -17,7 +17,8 @@ $UrlDiagnostico    = "$GitHubBase/diagn%C3%B3stico.ps1"
 $UrlPersonalizacao = "$GitHubBase/personalizacao.ps1"
 $UrlProgramas      = "$GitHubBase/programas.ps1"
 $UrlOffice         = "$GitHubBase/office.ps1"
-$UrlBackup = "$GitHubBase/backup.ps1"
+$UrlBackup         = "$GitHubBase/backup.ps1"
+
 
 # ------------------------------------------------------------
 # FUNÇÕES GERAIS
@@ -221,11 +222,18 @@ function Menu-Principal {
                     -Url $UrlDiagnostico `
                     -Nome "Diagnóstico Preventivo"
             }
+
+
+            # ------------------------------------------------
+            # BACKUP E RESTAURAÇÃO
+            # ------------------------------------------------
+
             "6" {
-    Executar-Modulo `
-        -Url $UrlBackup `
-        -Nome "Backup e restauração"
-}
+
+                Executar-Modulo `
+                    -Url $UrlBackup `
+                    -Nome "Backup e restauração"
+            }
 
 
             # ------------------------------------------------
@@ -253,3 +261,4 @@ function Menu-Principal {
 # ============================================================
 
 Menu-Principal
+
