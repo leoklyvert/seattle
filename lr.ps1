@@ -82,6 +82,9 @@ function Obter-Modulo {
             throw "O arquivo retornado está vazio."
         }
 
+        # Remove qualquer BOM UTF-8 inicial para o Invoke-Expression não tratá-lo como comando.
+        $Codigo = ([string]$Codigo).TrimStart([char]0xFEFF)
+
         return $Codigo
     }
     catch {
@@ -261,4 +264,3 @@ function Menu-Principal {
 # ============================================================
 
 Menu-Principal
-
