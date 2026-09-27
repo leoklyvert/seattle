@@ -259,7 +259,7 @@ $start.Add_Click({
                     $percent = [int][Math]::Min(99, [Math]::Floor(100 * $measuredBytes / $totalBytes))
                     $progressBar.Value = [Math]::Max(0, $percent)
                     $elapsedSeconds = [Math]::Max(1, ((Get-Date) - $copyStarted).TotalSeconds)
-                    $remainingSeconds = [Math]::Max(0, [Math]::Ceiling(($totalBytes - $measuredBytes) * $elapsedSeconds / [Math]::Max(1, $measuredBytes)))
+                    $remainingSeconds = [Math]::Max([double]0, [Math]::Ceiling(([double]$totalBytes - [double]$measuredBytes) * [double]$elapsedSeconds / [Math]::Max([double]1, [double]$measuredBytes)))
                     $eta = [TimeSpan]::FromSeconds($remainingSeconds)
                     $progressText.Text = "${percent}% — $(Format-Size $measuredBytes) de $(Format-Size $totalBytes) — restante estimado: $($eta.ToString('hh\:mm\:ss'))"
                 } else {
