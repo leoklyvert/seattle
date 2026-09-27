@@ -17,7 +17,7 @@ $UrlDiagnostico    = "$GitHubBase/diagn%C3%B3stico.ps1"
 $UrlPersonalizacao = "$GitHubBase/personalizacao.ps1"
 $UrlProgramas      = "$GitHubBase/programas.ps1"
 $UrlOffice         = "$GitHubBase/office.ps1"
-
+$UrlBackup = "$GitHubBase/backup.ps1"
 
 # ------------------------------------------------------------
 # FUNÇÕES GERAIS
@@ -155,6 +155,7 @@ function Menu-Principal {
         Write-Host "3 - Programas"
         Write-Host "4 - Office"
         Write-Host "5 - Diagnóstico"
+        Write-Host "6 - Backup e restauração"
         Write-Host "0 - Sair"
         Write-Host ""
 
@@ -220,6 +221,11 @@ function Menu-Principal {
                     -Url $UrlDiagnostico `
                     -Nome "Diagnóstico Preventivo"
             }
+            "6" {
+    Executar-Modulo `
+        -Url $UrlBackup `
+        -Nome "Backup e restauração"
+}
 
 
             # ------------------------------------------------
