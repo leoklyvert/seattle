@@ -31,11 +31,14 @@ $list = New-Object System.Windows.Forms.CheckedListBox
 $list.Location = New-Object System.Drawing.Point(18, 105)
 $list.Size = New-Object System.Drawing.Size(647, 235)
 $list.CheckOnClick = $true
-$list.Items.AddRange([object[]]@(
+$script:fixedRestoreItems = @(
     'Área de Trabalho', 'Documentos', 'Downloads', 'Contatos', 'Favoritos do Windows',
     'Imagens', 'Músicas', 'Vídeos', 'Favoritos do Edge', 'Favoritos do Chrome',
     'Favoritos do Firefox', 'Perfis e senhas de Wi-Fi'
-))
+)
+$script:customManifest = @()
+$script:customLabelMap = @{}
+$list.Items.AddRange([object[]]$script:fixedRestoreItems)
 $form.Controls.Add($list)
 
 $warning = New-Object System.Windows.Forms.Label
@@ -78,6 +81,29 @@ $choose.Add_Click({
             return
         }
         $script:backupRoot = $selected
+        $script:customManifest = @()
+        $script:customLabelMap = @{}
+        $list.Items.Clear()
+        $list.Items.AddRange([object[]]$script:fixedRestoreItems)
+        $manifestPath = Join-Path $selected 'Custom-Folders.json'
+        if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+            try {
+                $loadedManifest = @(Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+                foreach ($entry in $loadedManifest) {
+                    if (-not $entry.Id -or -not $entry.SourcePath -or -not $entry.BackupRelativePath) { continue }
+                    $relativeBackupPath = [string]$entry.BackupRelativePath
+                    if ([System.IO.Path]::IsPathRooted($relativeBackupPath) -or $relativeBackupPath -notlike 'Custom-Folders*' -or $relativeBackupPath -match '(^|[\\/])\.\.([\\/]|$)') { continue }
+                    if (-not [System.IO.Path]::IsPathRooted([string]$entry.SourcePath)) { continue }
+                    $label = "Pasta adicional — $($entry.DisplayName): $($entry.SourcePath)"
+                    if ($script:customLabelMap.ContainsKey($label)) { continue }
+                    $script:customManifest += $entry
+                    $script:customLabelMap[$label] = $entry
+                    $null = $list.Items.Add($label)
+                }
+            } catch {
+                [System.Windows.Forms.MessageBox]::Show('O índice das pastas adicionais não pôde ser lido. Os itens padrão continuam disponíveis.', 'Aviso', 'OK', 'Warning') | Out-Null
+            }
+        }
         $backupLabel.Text = $selected
         $restore.Enabled = $true
     }
@@ -89,7 +115,11 @@ $restore.Add_Click({
         [System.Windows.Forms.MessageBox]::Show('Marque pelo menos um item para restaurar.', 'Nada selecionado', 'OK', 'Information') | Out-Null
         return
     }
-    $answer = [System.Windows.Forms.MessageBox]::Show('A restauração pode substituir arquivos existentes nos locais de destino. Ela não apaga arquivos que existam apenas no computador. Deseja continuar?', 'Confirmar restauração', 'YesNo', 'Warning')
+    $customDestinations = @($selectedItems | Where-Object { $script:customLabelMap.ContainsKey($_) } | ForEach-Object { $script:customLabelMap[$_].SourcePath })
+    $confirmText = 'A restauração pode substituir arquivos existentes nos locais de destino. Ela não apaga arquivos que existam apenas no computador.'
+    if ($customDestinations.Count -gt 0) { $confirmText += "`r`n`r`nPastas adicionais serão restauradas em:`r`n$($customDestinations -join "`r`n")" }
+    $confirmText += "`r`n`r`nDeseja continuar?"
+    $answer = [System.Windows.Forms.MessageBox]::Show($confirmText, 'Confirmar restauração', 'YesNo', 'Warning')
     if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
     $browserItems = @('Favoritos do Edge', 'Favoritos do Chrome', 'Favoritos do Firefox')
     if (@($selectedItems | Where-Object { $_ -in $browserItems }).Count -gt 0) {
@@ -131,6 +161,23 @@ $restore.Add_Click({
                 $destination = $folderMap[$label].Destination
                 if (-not (Test-Path -LiteralPath $source -PathType Container)) {
                     "PULADO: $label — não encontrado no backup." | Add-Content -LiteralPath $logPath -Encoding UTF8
+                    continue
+                }
+                $null = New-Item -ItemType Directory -Path $destination -Force
+                $argumentLine = '"{0}" "{1}" /E /COPY:DAT /DCOPY:DAT /XJ /R:2 /W:2 /FFT "/LOG+:{2}"' -f $source, $destination, $logPath
+                $copyProcess = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\robocopy.exe') -ArgumentList $argumentLine -WindowStyle Hidden -PassThru
+                while (-not $copyProcess.HasExited) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 250 }
+                $copyProcess.Refresh()
+                if ($copyProcess.ExitCode -ge 8) { $failures += $label }
+                continue
+            }
+
+            if ($script:customLabelMap.ContainsKey($label)) {
+                $entry = $script:customLabelMap[$label]
+                $source = Join-Path $script:backupRoot ([string]$entry.BackupRelativePath)
+                $destination = [System.IO.Path]::GetFullPath([string]$entry.SourcePath)
+                if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+                    "PULADO: $label — pasta não encontrada no backup: $source" | Add-Content -LiteralPath $logPath -Encoding UTF8
                     continue
                 }
                 $null = New-Item -ItemType Directory -Path $destination -Force
@@ -217,5 +264,6 @@ $restore.Add_Click({
 })
 
 [void]$form.ShowDialog()
+
 
 

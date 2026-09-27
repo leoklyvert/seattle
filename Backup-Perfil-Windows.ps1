@@ -6,44 +6,69 @@ Add-Type -AssemblyName System.Drawing
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Backup do perfil do Windows'
 $form.StartPosition = 'CenterScreen'
-$form.Size = New-Object System.Drawing.Size(650, 315)
+$form.Size = New-Object System.Drawing.Size(790, 455)
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 
 $title = New-Object System.Windows.Forms.Label
-$title.Text = 'Copie as pastas principais do perfil para um HD externo.'
+$title.Text = 'Copie as pastas do perfil e outras pastas escolhidas para um HD externo.'
 $title.Location = New-Object System.Drawing.Point(18, 18)
-$title.Size = New-Object System.Drawing.Size(600, 28)
+$title.Size = New-Object System.Drawing.Size(740, 28)
 $form.Controls.Add($title)
 
 $choose = New-Object System.Windows.Forms.Button
 $choose.Text = 'Escolher pasta no HD externo…'
-$choose.Location = New-Object System.Drawing.Point(18, 58)
+$choose.Location = New-Object System.Drawing.Point(18, 52)
 $choose.Size = New-Object System.Drawing.Size(205, 34)
 $form.Controls.Add($choose)
 
 $destinationLabel = New-Object System.Windows.Forms.Label
 $destinationLabel.Text = 'Nenhum destino selecionado.'
-$destinationLabel.Location = New-Object System.Drawing.Point(235, 60)
-$destinationLabel.Size = New-Object System.Drawing.Size(375, 42)
+$destinationLabel.Location = New-Object System.Drawing.Point(235, 56)
+$destinationLabel.Size = New-Object System.Drawing.Size(535, 36)
 $form.Controls.Add($destinationLabel)
+
+$customHeader = New-Object System.Windows.Forms.Label
+$customHeader.Text = 'Pastas adicionais para incluir (de qualquer unidade):'
+$customHeader.Location = New-Object System.Drawing.Point(18, 96)
+$customHeader.Size = New-Object System.Drawing.Size(540, 22)
+$form.Controls.Add($customHeader)
+
+$customList = New-Object System.Windows.Forms.ListBox
+$customList.Location = New-Object System.Drawing.Point(18, 120)
+$customList.Size = New-Object System.Drawing.Size(570, 90)
+$form.Controls.Add($customList)
+
+$addCustom = New-Object System.Windows.Forms.Button
+$addCustom.Text = 'Adicionar pasta…'
+$addCustom.Location = New-Object System.Drawing.Point(605, 120)
+$addCustom.Size = New-Object System.Drawing.Size(165, 34)
+$addCustom.Enabled = $false
+$form.Controls.Add($addCustom)
+
+$removeCustom = New-Object System.Windows.Forms.Button
+$removeCustom.Text = 'Remover selecionada'
+$removeCustom.Location = New-Object System.Drawing.Point(605, 162)
+$removeCustom.Size = New-Object System.Drawing.Size(165, 34)
+$removeCustom.Enabled = $false
+$form.Controls.Add($removeCustom)
 
 $status = New-Object System.Windows.Forms.Label
 $status.Text = 'Inclui 8 pastas, favoritos dos navegadores e perfis Wi-Fi salvos.'
-$status.Location = New-Object System.Drawing.Point(18, 108)
-$status.Size = New-Object System.Drawing.Size(600, 24)
+$status.Location = New-Object System.Drawing.Point(18, 222)
+$status.Size = New-Object System.Drawing.Size(740, 24)
 $form.Controls.Add($status)
 
 $privacy = New-Object System.Windows.Forms.Label
 $privacy.Text = 'A exportação Wi-Fi contém senhas em texto legível no HD externo.'
-$privacy.Location = New-Object System.Drawing.Point(18, 137)
-$privacy.Size = New-Object System.Drawing.Size(600, 22)
+$privacy.Location = New-Object System.Drawing.Point(18, 248)
+$privacy.Size = New-Object System.Drawing.Size(740, 22)
 $privacy.ForeColor = [System.Drawing.Color]::DarkRed
 $form.Controls.Add($privacy)
 
 $progressBar = New-Object System.Windows.Forms.ProgressBar
-$progressBar.Location = New-Object System.Drawing.Point(18, 165)
-$progressBar.Size = New-Object System.Drawing.Size(600, 20)
+$progressBar.Location = New-Object System.Drawing.Point(18, 278)
+$progressBar.Size = New-Object System.Drawing.Size(740, 20)
 $progressBar.Minimum = 0
 $progressBar.Maximum = 100
 $progressBar.Value = 0
@@ -51,20 +76,20 @@ $form.Controls.Add($progressBar)
 
 $progressText = New-Object System.Windows.Forms.Label
 $progressText.Text = 'Aguardando início.'
-$progressText.Location = New-Object System.Drawing.Point(18, 191)
-$progressText.Size = New-Object System.Drawing.Size(600, 24)
+$progressText.Location = New-Object System.Drawing.Point(18, 304)
+$progressText.Size = New-Object System.Drawing.Size(740, 24)
 $form.Controls.Add($progressText)
 
 $start = New-Object System.Windows.Forms.Button
 $start.Text = 'Iniciar backup'
-$start.Location = New-Object System.Drawing.Point(18, 225)
+$start.Location = New-Object System.Drawing.Point(18, 350)
 $start.Size = New-Object System.Drawing.Size(145, 36)
 $start.Enabled = $false
 $form.Controls.Add($start)
 
 $close = New-Object System.Windows.Forms.Button
 $close.Text = 'Fechar'
-$close.Location = New-Object System.Drawing.Point(174, 225)
+$close.Location = New-Object System.Drawing.Point(174, 350)
 $close.Size = New-Object System.Drawing.Size(90, 36)
 $form.Controls.Add($close)
 $close.Add_Click({ $form.Close() })
@@ -73,6 +98,10 @@ $picker = New-Object System.Windows.Forms.FolderBrowserDialog
 $picker.Description = 'Selecione uma pasta no HD externo. O backup será criado dentro dela.'
 $picker.ShowNewFolderButton = $true
 $script:destinationRoot = $null
+$script:customFolderPaths = New-Object System.Collections.ArrayList
+$customPicker = New-Object System.Windows.Forms.FolderBrowserDialog
+$customPicker.Description = 'Selecione qualquer pasta que deseja acrescentar ao backup.'
+$customPicker.ShowNewFolderButton = $false
 
 function Get-TreeBytes([string]$Path) {
     [long]$sum = 0
@@ -102,7 +131,35 @@ $choose.Add_Click({
         $script:destinationRoot = $selected
         $destinationLabel.Text = $selected
         $start.Enabled = $true
+        $addCustom.Enabled = $true
     }
+})
+
+$addCustom.Add_Click({
+    if ($customPicker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $selected = [System.IO.Path]::GetFullPath($customPicker.SelectedPath).TrimEnd('\')
+        $destination = [System.IO.Path]::GetFullPath($script:destinationRoot).TrimEnd('\')
+        if ($selected -ieq $destination -or $destination.StartsWith($selected + '\', [System.StringComparison]::OrdinalIgnoreCase) -or $selected.StartsWith($destination + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+            [System.Windows.Forms.MessageBox]::Show('Essa seleção se sobrepõe à pasta de destino do backup. Escolha outra pasta para evitar copiar o HD para dentro de si mesmo.', 'Pasta inválida', 'OK', 'Warning') | Out-Null
+            return
+        }
+        if ($script:customFolderPaths -contains $selected) {
+            [System.Windows.Forms.MessageBox]::Show('Essa pasta já está na lista.', 'Pasta repetida', 'OK', 'Information') | Out-Null
+            return
+        }
+        $null = $script:customFolderPaths.Add($selected)
+        $null = $customList.Items.Add($selected)
+        $removeCustom.Enabled = $true
+    }
+})
+
+$removeCustom.Add_Click({
+    $index = $customList.SelectedIndex
+    if ($index -ge 0) {
+        $script:customFolderPaths.RemoveAt($index)
+        $customList.Items.RemoveAt($index)
+    }
+    $removeCustom.Enabled = ($customList.Items.Count -gt 0)
 })
 
 $start.Add_Click({
@@ -135,15 +192,32 @@ $start.Add_Click({
         } catch { }
 
         $folders = @(
-            @{ Name = 'Desktop'; Source = [Environment]::GetFolderPath('Desktop') },
-            @{ Name = 'Documents'; Source = [Environment]::GetFolderPath('MyDocuments') },
-            @{ Name = 'Downloads'; Source = $downloads },
-            @{ Name = 'Contacts'; Source = $contacts },
-            @{ Name = 'Favorites'; Source = $favorites },
-            @{ Name = 'Pictures'; Source = [Environment]::GetFolderPath('MyPictures') },
-            @{ Name = 'Music'; Source = [Environment]::GetFolderPath('MyMusic') },
-            @{ Name = 'Videos'; Source = [Environment]::GetFolderPath('MyVideos') }
+            @{ Id = 'Desktop'; Name = 'Área de Trabalho'; Source = [Environment]::GetFolderPath('Desktop'); TargetRelative = 'Desktop' },
+            @{ Id = 'Documents'; Name = 'Documentos'; Source = [Environment]::GetFolderPath('MyDocuments'); TargetRelative = 'Documents' },
+            @{ Id = 'Downloads'; Name = 'Downloads'; Source = $downloads; TargetRelative = 'Downloads' },
+            @{ Id = 'Contacts'; Name = 'Contatos'; Source = $contacts; TargetRelative = 'Contacts' },
+            @{ Id = 'Favorites'; Name = 'Favoritos do Windows'; Source = $favorites; TargetRelative = 'Favorites' },
+            @{ Id = 'Pictures'; Name = 'Imagens'; Source = [Environment]::GetFolderPath('MyPictures'); TargetRelative = 'Pictures' },
+            @{ Id = 'Music'; Name = 'Músicas'; Source = [Environment]::GetFolderPath('MyMusic'); TargetRelative = 'Music' },
+            @{ Id = 'Videos'; Name = 'Vídeos'; Source = [Environment]::GetFolderPath('MyVideos'); TargetRelative = 'Videos' }
         )
+
+        $customManifest = @()
+        $customIndex = 0
+        foreach ($customPath in $script:customFolderPaths) {
+            $customIndex++
+            $folderId = 'Folder-{0:D2}' -f $customIndex
+            $customManifest += [pscustomobject]@{
+                Id = $folderId
+                DisplayName = (Split-Path -Leaf $customPath)
+                SourcePath = $customPath
+                BackupRelativePath = Join-Path 'Custom-Folders' $folderId
+            }
+            $folders += @{ Id = $folderId; Name = "Pasta adicional: $(Split-Path -Leaf $customPath)"; Source = $customPath; TargetRelative = (Join-Path 'Custom-Folders' $folderId) }
+        }
+        if ($customManifest.Count -gt 0) {
+            $customManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $backupRoot 'Custom-Folders.json') -Encoding UTF8
+        }
 
         $progressBar.Style = 'Marquee'
         $progressText.Text = 'Calculando o tamanho aproximado das pastas…'
@@ -152,8 +226,8 @@ $start.Add_Click({
         $folderSizes = @{}
         foreach ($folder in $folders) {
             $source = [Environment]::ExpandEnvironmentVariables($folder.Source)
-            $folderSizes[$folder.Name] = Get-TreeBytes $source
-            $totalBytes += $folderSizes[$folder.Name]
+            $folderSizes[$folder.Id] = Get-TreeBytes $source
+            $totalBytes += $folderSizes[$folder.Id]
         }
         $progressBar.Style = 'Continuous'
         $progressBar.Value = 0
@@ -166,7 +240,7 @@ $start.Add_Click({
         $failures = @()
         foreach ($folder in $folders) {
             $source = [Environment]::ExpandEnvironmentVariables($folder.Source)
-            $target = Join-Path $backupRoot $folder.Name
+            $target = Join-Path $backupRoot $folder.TargetRelative
             $status.Text = "Copiando $($folder.Name)…"
             [System.Windows.Forms.Application]::DoEvents()
             if (-not $source -or -not (Test-Path -LiteralPath $source -PathType Container)) {
@@ -197,7 +271,7 @@ $start.Add_Click({
             if ($copyCode -ge 8) {
                 $failures += $folder.Name
             }
-            $completedBytes += $folderSizes[$folder.Name]
+            $completedBytes += $folderSizes[$folder.Id]
         }
 
         $browserRoot = Join-Path $backupRoot 'Browser-Favorites'
