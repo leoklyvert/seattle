@@ -1,720 +1,423 @@
 # ============================================================
-# Módulo Seattle by LR Tecnologia
-# Criado e desenvolvido por Leonardo M. Batista.
-# ============================================================
-# Módulo: Manutenção
-# Inventário do computador
-# Versão 1.3.0
+# SEATTLE - LR TECNOLOGIA
+# Módulo: Manutenção básica do Windows
+# Versão 2.1.0
 #
-# SOMENTE LEITURA
-#
-# Esta versão NÃO grava inventário permanentemente
-# no computador do cliente.
-#
-# Os dados são enviados diretamente para a HostGator.
-# ============================================================
-param(
-    [string]$Cliente = "Não informado",
-    [string]$TipoCliente = "Não informado"
-)
-
-$ErrorActionPreference = "SilentlyContinue"
-
-# ============================================================
-# CONFIGURAÇÃO
+# Atenção:
+# - Execute como administrador para tarefas de sistema.
+# - Não desativa o UAC nem remove conteúdo geral de ProgramData.
+# - Alterações em serviços são individuais e registradas para reversão.
+# - Teste em equipamento próprio antes de utilizar remotamente.
 # ============================================================
 
-$UrlServidor = "https://lrtecnologia.net.br/seattle/receber_inventario.php"
-
-# COLOQUE AQUI A MESMA CHAVE DO receber_inventario.php
-$ChaveSeattle = ")#twPMPaKsj>d23}y3covTxvmr1Ht*EA3iHc=WQQEFVB424H>}"
-
-# ============================================================
-# ESTRUTURA LOCAL
-# ============================================================
-
-$Base = "C:\ProgramData\LR Tecnologia"
-$Relatorios = "$Base\Relatorios"
-$Historico = "$Base\Historico"
-$Logs = "$Base\Logs"
-
-foreach ($P in @($Base, $Relatorios, $Historico, $Logs)) {
-
-    if (!(Test-Path $P)) {
-        New-Item -Path $P -ItemType Directory -Force | Out-Null
-    }
+$ErrorActionPreference = "Continue"
+$Versao = "2.1.0"
+$PastaBase = Join-Path $env:LOCALAPPDATA "LR Tecnologia"
+$PastaLogs = Join-Path $PastaBase "Logs"
+$PastaBackups = Join-Path $PastaBase "Backups"
+foreach ($Pasta in @($PastaLogs, $PastaBackups)) {
+    try { New-Item -Path $Pasta -ItemType Directory -Force | Out-Null } catch {}
 }
-
-$Log = "$Logs\Seattle.log"
+$ArquivoLog = Join-Path $PastaLogs "Seattle-Manutencao.log"
+$ArquivoServicos = Join-Path $PastaBackups "Servicos-antes-da-alteracao.json"
 
 function Log {
-    param($Texto)
-
-    Add-Content $Log "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss') - $Texto"
+    param([string]$Mensagem)
+    try { Add-Content -LiteralPath $ArquivoLog -Encoding UTF8 -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Mensagem" } catch {}
 }
 
-# ============================================================
-# TIPO DE MEMÓRIA (tradução do código numérico do Windows)
-# ============================================================
-
-function Obter-TipoMemoria {
-    param($Codigo)
-
-    switch ($Codigo) {
-        20 { return "DDR" }
-        21 { return "DDR2" }
-        24 { return "DDR3" }
-        26 { return "DDR4" }
-        30 { return "DDR5" }
-        default { return "Desconhecido" }
-    }
+function Eh-Administrador {
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object Security.Principal.WindowsPrincipal($id)
+        return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch { return $false }
 }
 
-# ============================================================
-# CABEÇALHO
-# ============================================================
-
-Clear-Host
-
-Write-Host ""
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "              ROBÔ LR TECNOLOGIA" -ForegroundColor Cyan
-Write-Host "          DIAGNÓSTICO PREVENTIVO v1.3.0" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "                  SOMENTE LEITURA" -ForegroundColor Yellow
-Write-Host "       Não altera configurações do computador" -ForegroundColor Gray
-Write-Host "       Não remove programas" -ForegroundColor Gray
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host ""
-
-Log "===== INÍCIO DIAGNÓSTICO ====="
-
-# ============================================================
-# IDENTIFICAÇÃO
-# ============================================================
-
-Write-Host "[1/6] Coletando identificação..." -ForegroundColor Cyan
-
-$Sistema = Get-CimInstance Win32_ComputerSystem
-$BIOS = Get-CimInstance Win32_BIOS
-$SO = Get-CimInstance Win32_OperatingSystem
-
-$Computador = $env:COMPUTERNAME
-$Usuario = $env:USERNAME
-$Fabricante = $Sistema.Manufacturer
-$Modelo = $Sistema.Model
-$Serial = $BIOS.SerialNumber
-
-Log "Identificação coletada"
-
-# ============================================================
-# WINDOWS
-# ============================================================
-
-Write-Host "[2/6] Coletando informações do Windows..." -ForegroundColor Cyan
-
-$Windows = Get-ItemProperty `
-    "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
-
-$VersaoWindows = "$($Windows.ProductName) $($Windows.DisplayVersion)"
-
-$BuildWindows = $Windows.CurrentBuild
-$UBRWindows = $Windows.UBR
-
-# ============================================================
-# TEMPO LIGADO
-# ============================================================
-# Get-CimInstance já retorna LastBootUpTime como [DateTime],
-# diferente do Get-WmiObject (que retorna string DMTF).
-# ============================================================
-
-$Boot = $null
-$TempoLigado = $null
-
-try {
-
-    $ValorBoot = $SO.LastBootUpTime
-
-    if ($null -eq $ValorBoot) {
-
-        throw "SO.LastBootUpTime veio nulo"
-    }
-    elseif ($ValorBoot -is [string]) {
-
-        $Boot = [Management.ManagementDateTimeConverter]::ToDateTime($ValorBoot)
-    }
-    else {
-
-        $Boot = $ValorBoot
-    }
-
-    $TempoLigado = New-TimeSpan -Start $Boot -End (Get-Date)
-
-}
-catch {
-
-    Log "Não foi possível obter tempo ligado: $($_.Exception.Message)"
+function Confirmar {
+    param([string]$Mensagem)
+    return ((Read-Host "$Mensagem (S/N)") -match '^(S|SIM)$')
 }
 
-# ============================================================
-# CPU
-# ============================================================
+function Pausar {
+    Write-Host ""
+    Write-Host "Pressione qualquer tecla para voltar ao menu..." -ForegroundColor DarkGray
+    try { [void][Console]::ReadKey($true) } catch { [void](Read-Host "Pressione Enter") }
+}
 
-Write-Host "[3/6] Coletando processador..." -ForegroundColor Cyan
+function Formatar-Tamanho {
+    param([long]$Bytes)
+    if ($Bytes -ge 1GB) { return ("{0:N2} GB" -f ($Bytes / 1GB)) }
+    if ($Bytes -ge 1MB) { return ("{0:N2} MB" -f ($Bytes / 1MB)) }
+    if ($Bytes -ge 1KB) { return ("{0:N2} KB" -f ($Bytes / 1KB)) }
+    return "$Bytes bytes"
+}
 
-$CPUInfo = Get-CimInstance Win32_Processor |
-    Select-Object -First 1
+function Tamanho-Pasta {
+    param([string]$Caminho)
+    if (-not (Test-Path -LiteralPath $Caminho -PathType Container)) { return [long]0 }
+    try {
+        $s = (Get-ChildItem -LiteralPath $Caminho -Force -File -Recurse -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        if ($null -eq $s) { return [long]0 }
+        return [long]$s
+    } catch { return [long]0 }
+}
 
-$CPU = $CPUInfo.Name
-$Nucleos = $CPUInfo.NumberOfCores
-$Threads = $CPUInfo.NumberOfLogicalProcessors
+function Limpar-Pasta {
+    param([string]$Caminho, [string]$Descricao)
+    if ([string]::IsNullOrWhiteSpace($Caminho) -or -not (Test-Path -LiteralPath $Caminho -PathType Container)) {
+        Write-Host "Pasta não encontrada: $Descricao" -ForegroundColor DarkGray
+        return [long]0
+    }
+    Write-Host "Limpando $Descricao..." -ForegroundColor Cyan
+    $antes = Tamanho-Pasta $Caminho
+    $falhas = 0
+    foreach ($item in @(Get-ChildItem -LiteralPath $Caminho -Force -ErrorAction SilentlyContinue)) {
+        try { Remove-Item -LiteralPath $item.FullName -Force -Recurse -ErrorAction Stop }
+        catch { $falhas++; Log "Falha ao remover '$($item.FullName)': $($_.Exception.Message)" }
+    }
+    $depois = Tamanho-Pasta $Caminho
+    $liberado = [Math]::Max([long]0, ($antes - $depois))
+    Write-Host "Espaço estimado liberado: $(Formatar-Tamanho $liberado)" -ForegroundColor Green
+    if ($falhas) { Write-Host "$falhas item(ns) ignorados por estarem em uso ou sem permissão." -ForegroundColor Yellow }
+    Log "Limpeza '$Caminho'; espaço estimado: $(Formatar-Tamanho $liberado); falhas=$falhas"
+    return $liberado
+}
 
-$UsoCPU = 0
+function Limpar-Temporarios {
+    Write-Host "`nSerão limpas apenas pastas temporárias conhecidas." -ForegroundColor Yellow
+    Write-Host "Arquivos em uso serão ignorados. Pastas pessoais e ProgramData não serão apagadas."
+    if (-not (Confirmar "Continuar com a limpeza")) { return }
+    $total = [long]0
+    $pastas = @()
+    if ($env:TEMP) { $pastas += [pscustomobject]@{Path=$env:TEMP; Nome="Temporários do usuário"} }
+    $localTemp = Join-Path $env:LOCALAPPDATA "Temp"
+    if ($localTemp -and $localTemp -ne $env:TEMP) { $pastas += [pscustomobject]@{Path=$localTemp; Nome="Temporários locais do usuário"} }
+    $pastas += [pscustomobject]@{Path=(Join-Path $env:WINDIR "Temp"); Nome="Temporários do Windows"}
+    if (Test-Path "C:\Temp") { $pastas += [pscustomobject]@{Path="C:\Temp"; Nome="C:\Temp"} }
+    foreach ($pasta in $pastas) { $total += Limpar-Pasta -Caminho $pasta.Path -Descricao $pasta.Nome }
+    Write-Host "`nTotal estimado liberado: $(Formatar-Tamanho $total)" -ForegroundColor Green
+    Log "Limpeza temporária concluída: $(Formatar-Tamanho $total)"
+}
 
-try {
+function Limpar-Lixeira {
+    if (-not (Confirmar "Esvaziar a Lixeira? Esta ação não pode ser desfeita.")) { return }
+    try {
+        Clear-RecycleBin -Force -ErrorAction Stop
+        Write-Host "Lixeira esvaziada." -ForegroundColor Green
+        Log "Lixeira esvaziada."
+    } catch { Write-Host "Falha ao esvaziar a Lixeira: $($_.Exception.Message)" -ForegroundColor Red; Log "Falha ao esvaziar Lixeira." }
+}
 
-    $ContadorCPU = Get-Counter `
-        "\Processor(_Total)\% Processor Time"
+function Limpar-DNS {
+    try {
+        Clear-DnsClientCache -ErrorAction Stop
+        Write-Host "Cache DNS limpo." -ForegroundColor Green
+        Log "Cache DNS limpo."
+    } catch { Write-Host "Falha ao limpar DNS: $($_.Exception.Message)" -ForegroundColor Red }
+}
 
-    $UsoCPU = [math]::Round(
-        $ContadorCPU.CounterSamples.CookedValue,
-        1
+function Backup-Registro {
+    $data = Get-Date -Format "yyyyMMdd-HHmmss"
+    $destinoUsuario = Join-Path $PastaBackups "HKCU-Software-$data.reg"
+    $destinoSistema = Join-Path $PastaBackups "HKLM-Software-$data.reg"
+    try {
+        & reg.exe export "HKCU\Software" $destinoUsuario /y | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Host "Backup do usuário: $destinoUsuario" -ForegroundColor Green }
+        else { Write-Host "Não foi possível exportar HKCU\Software." -ForegroundColor Yellow }
+        if (Eh-Administrador) {
+            & reg.exe export "HKLM\SOFTWARE" $destinoSistema /y | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Host "Backup do sistema: $destinoSistema" -ForegroundColor Green }
+            else { Write-Host "Não foi possível exportar HKLM\SOFTWARE." -ForegroundColor Yellow }
+        } else { Write-Host "Execute como administrador para incluir HKLM." -ForegroundColor Yellow }
+    } catch { Write-Host "Erro no backup: $($_.Exception.Message)" -ForegroundColor Red }
+    Log "Rotina de backup do Registro executada."
+}
+
+function Verificar-Registro {
+    $caminhos = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
     )
-
+    $contagem = 0
+    foreach ($caminho in $caminhos) {
+        try { $contagem += @((Get-ItemProperty -Path $caminho -ErrorAction SilentlyContinue | Where-Object DisplayName)).Count } catch {}
+    }
+    Write-Host "Entradas de programas encontradas: $contagem" -ForegroundColor Green
+    Write-Host "A contagem não identifica erros. Nenhuma chave será apagada." -ForegroundColor Yellow
+    Log "Verificação somente leitura do Registro: $contagem entradas."
 }
-catch {
 
-    Log "Não foi possível obter uso da CPU"
+function Limpar-ComponentesWindows {
+    if (-not (Eh-Administrador)) { Write-Host "Esta tarefa exige administrador." -ForegroundColor Red; return }
+    Write-Host "O DISM limpa componentes substituídos do Windows e pode demorar." -ForegroundColor Yellow
+    if (-not (Confirmar "Executar DISM StartComponentCleanup")) { return }
+    try {
+        $proc = Start-Process dism.exe -ArgumentList @("/Online","/Cleanup-Image","/StartComponentCleanup") -Wait -PassThru -NoNewWindow
+        if ($proc.ExitCode -eq 0) { Write-Host "Limpeza concluída." -ForegroundColor Green }
+        else { Write-Host "DISM retornou código $($proc.ExitCode)." -ForegroundColor Yellow }
+        Log "DISM executado; código=$($proc.ExitCode)"
+    } catch { Write-Host "Erro no DISM: $($_.Exception.Message)" -ForegroundColor Red }
 }
 
-# ============================================================
-# RAM (uso geral + hardware por pente)
-# ============================================================
-
-Write-Host "[4/6] Coletando memória RAM..." -ForegroundColor Cyan
-
-$RAMTotal = [math]::Round(
-    $Sistema.TotalPhysicalMemory / 1GB,
-    1
-)
-
-$RAMUso = [math]::Round(
-    (
-        (
-            $SO.TotalVisibleMemorySize -
-            $SO.FreePhysicalMemory
-        ) /
-        $SO.TotalVisibleMemorySize
-    ) * 100,
-    1
-)
-
-$RAMLivre = [math]::Round(
-    $SO.FreePhysicalMemory / 1MB,
-    1
-)
-
-$ModulosRAM = @()
-
-try {
-
-    $ModulosRAM = @(
-        Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop |
-        ForEach-Object {
-
-            [PSCustomObject]@{
-
-                Slot          = $_.DeviceLocator
-                Fabricante    = if ($_.Manufacturer) { $_.Manufacturer.Trim() } else { $null }
-                NumeroSerie   = if ($_.SerialNumber) { $_.SerialNumber.Trim() } else { $null }
-                CapacidadeGB  = [math]::Round($_.Capacity / 1GB, 1)
-                VelocidadeMHz = $_.Speed
-                Tipo          = Obter-TipoMemoria -Codigo $_.SMBIOSMemoryType
-            }
+function Configurar-Energia {
+    Write-Host "`nPERFIL DE ENERGIA: DESEMPENHO MÁXIMO" -ForegroundColor Cyan
+    Write-Host "Pode aumentar consumo, temperatura e ruído, especialmente em notebooks."
+    if (-not (Confirmar "Ativar ou selecionar o perfil")) { return }
+    try {
+        $lista = (& powercfg.exe /list 2>&1 | Out-String)
+        $guid = "e9a42b02-d5df-448d-aa00-03f14749eb61"
+        $match = [regex]::Match($lista, "(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*$([regex]::Escape($guid))")
+        if ($lista -match "(?i)$guid") {
+            $plano = $guid
+        } else {
+            $saida = & powercfg.exe -duplicatescheme $guid 2>&1 | Out-String
+            $novo = [regex]::Match($saida, "(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+            if (-not $novo.Success) { throw "Não foi possível criar o plano: $saida" }
+            $plano = $novo.Value
         }
+        & powercfg.exe /setactive $plano
+        if ($LASTEXITCODE -eq 0) { Write-Host "Plano de desempenho máximo ativado." -ForegroundColor Green; Log "Plano de energia de desempenho máximo ativado: $plano" }
+        else { Write-Host "Não foi possível ativar o plano." -ForegroundColor Yellow }
+    } catch { Write-Host "Erro de energia: $($_.Exception.Message)" -ForegroundColor Red }
+}
+
+function Abrir-Energia {
+    Start-Process "powercfg.cpl"
+}
+
+function Configurar-Suspensao {
+    Write-Host "`nEsta opção desativa a hibernação e define monitor, disco e suspensão para Nunca." -ForegroundColor Yellow
+    Write-Host "Em notebooks, isso pode gastar bateria e impedir economia automática de energia."
+    if (-not (Eh-Administrador)) { Write-Host "Execute como administrador." -ForegroundColor Red; return }
+    if (-not (Confirmar "Aplicar estas configurações de energia")) { return }
+    $comandos = @(
+        @("/change","monitor-timeout-ac","0"),
+        @("/change","monitor-timeout-dc","0"),
+        @("/change","disk-timeout-ac","0"),
+        @("/change","disk-timeout-dc","0"),
+        @("/change","standby-timeout-ac","0"),
+        @("/change","standby-timeout-dc","0"),
+        @("/change","hibernate-timeout-ac","0"),
+        @("/change","hibernate-timeout-dc","0"),
+        @("/hibernate","off")
+    )
+    foreach ($args in $comandos) {
+        & powercfg.exe @args
+        if ($LASTEXITCODE -ne 0) { Write-Host "Comando powercfg falhou: $($args -join ' ')" -ForegroundColor Yellow }
+    }
+    Log "Configurações de suspensão aplicadas; hibernação desativada."
+    Write-Host "Configurações aplicadas." -ForegroundColor Green
+}
+
+function Sincronizar-Horario {
+    if (-not (Eh-Administrador)) { Write-Host "Esta tarefa exige administrador." -ForegroundColor Red; return }
+    $servidores = "a.st1.ntp.br c.st1.ntp.br d.st1.ntp.br e.st1.ntp.br"
+    Write-Host "`nServidores NTP: $servidores" -ForegroundColor Cyan
+    if (-not (Confirmar "Configurar e sincronizar o horário")) { return }
+    try {
+        & w32tm.exe /config "/manualpeerlist:$servidores" /syncfromflags:manual /update
+        Set-Service -Name W32Time -StartupType Automatic -ErrorAction Stop
+        Start-Service -Name W32Time -ErrorAction SilentlyContinue
+        Restart-Service -Name W32Time -Force -ErrorAction Stop
+        Start-Sleep -Seconds 3
+        & w32tm.exe /resync /force
+        Write-Host "`nFonte atual:" -ForegroundColor Cyan
+        & w32tm.exe /query /source
+        Write-Host "`nStatus:" -ForegroundColor Cyan
+        & w32tm.exe /query /status
+        Log "Configuração NTP aplicada."
+    } catch { Write-Host "Falha na sincronização: $($_.Exception.Message)" -ForegroundColor Red; Log "Falha na configuração NTP." }
+}
+
+function Abrir-ConfiguracaoNavegador {
+    Write-Host "O Windows controla o navegador padrão; o comando antigo do Chrome não é confiável nas versões atuais." -ForegroundColor Yellow
+    try { Start-Process "ms-settings:defaultapps" } catch { Write-Host "Abra Configurações > Aplicativos > Aplicativos padrão." }
+    Write-Host "Selecione Google Chrome na tela do Windows para defini-lo como padrão."
+}
+
+function Desinstalar-OneDrive {
+    Write-Host "A remoção do OneDrive pode interromper sincronização e acesso a arquivos em nuvem." -ForegroundColor Yellow
+    if (-not (Confirmar "Tentar desinstalar o OneDrive deste computador")) { return }
+    $candidatos = @(
+        (Join-Path $env:SystemRoot "System32\OneDriveSetup.exe"),
+        (Join-Path $env:SystemRoot "SysWOW64\OneDriveSetup.exe")
+    )
+    $setup = $candidatos | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $setup) { Write-Host "Instalador do OneDrive não encontrado." -ForegroundColor Yellow; return }
+    try {
+        Start-Process -FilePath $setup -ArgumentList "/uninstall" -Wait
+        Write-Host "Comando de desinstalação concluído. Verifique Aplicativos instalados." -ForegroundColor Green
+        Log "Comando de desinstalação do OneDrive executado."
+    } catch { Write-Host "Falha: $($_.Exception.Message)" -ForegroundColor Red }
+}
+
+function Limpar-PastasInstalacaoConhecidas {
+    $alvos = @(
+        [pscustomobject]@{Path="C:\Office"; Nome="C:\Office"},
+        [pscustomobject]@{Path="C:\InstaladoresDotNet"; Nome="Instaladores .NET"},
+        [pscustomobject]@{Path="C:\InstaladoresVCpp"; Nome="Instaladores Visual C++"}
+    )
+    Write-Host "Só serão considerados os diretórios listados abaixo; ProgramData e Prefetch não serão apagados." -ForegroundColor Yellow
+    foreach ($a in $alvos) {
+        if (Test-Path -LiteralPath $a.Path) { Write-Host " - $($a.Path)" }
+    }
+    if (-not (Confirmar "Apagar o conteúdo das pastas de instalação existentes acima")) { return }
+    foreach ($a in $alvos) {
+        if (Test-Path -LiteralPath $a.Path) {
+            Limpar-Pasta -Caminho $a.Path -Descricao $a.Nome | Out-Null
+        }
+    }
+}
+
+function Desativar-ServicosOpcionais {
+    if (-not (Eh-Administrador)) { Write-Host "É necessário executar como administrador." -ForegroundColor Red; return }
+
+    # Nomes internos conhecidos. "Serviços do Sbox" precisa do nome interno exato
+    # para ser adicionado com segurança.
+    $catalogo = @(
+        [pscustomobject]@{Name="Fax"; Label="Fax"; Aviso="Pode afetar envio/recebimento de fax."},
+        [pscustomobject]@{Name="WSearch"; Label="Windows Search"; Aviso="Pode prejudicar indexação e pesquisas no menu Iniciar/Explorador."},
+        [pscustomobject]@{Name="SysMain"; Label="SysMain (Superfetch)"; Aviso="O efeito depende do equipamento; pode afetar desempenho."},
+        [pscustomobject]@{Name="XpsSvc"; Label="XPS Services"; Aviso="Pode afetar impressão/visualização de documentos XPS."},
+        [pscustomobject]@{Name="RemoteRegistry"; Label="Remote Registry"; Aviso="Desativar geralmente reduz superfície de acesso remoto ao Registro."},
+        [pscustomobject]@{Name="DiagTrack"; Label="Connected User Experiences and Telemetry"; Aviso="Reduz telemetria; pode afetar alguns recursos de diagnóstico."},
+        [pscustomobject]@{Name="WerSvc"; Label="Windows Error Reporting"; Aviso="Desativa relatórios de falha que ajudam no diagnóstico."}
     )
 
+    Write-Host "`nSERVIÇOS OPCIONAIS" -ForegroundColor Cyan
+    Write-Host "Cada serviço será apresentado individualmente. Não escolha serviços sem confirmar a necessidade do cliente."
+    $existentes = @()
+    foreach ($s in $catalogo) {
+        $svc = Get-CimInstance Win32_Service -Filter "Name='$($s.Name)'" -ErrorAction SilentlyContinue
+        if ($svc) { $existentes += [pscustomobject]@{Catalogo=$s; Servico=$svc} }
+    }
+    if (-not $existentes.Count) { Write-Host "Nenhum dos serviços foi encontrado."; return }
+
+    foreach ($item in $existentes) {
+        $s = $item.Catalogo
+        $svc = $item.Servico
+        Write-Host "`n$($s.Label) [$($s.Name)] - Estado: $($svc.State); Inicialização: $($svc.StartMode)" -ForegroundColor Yellow
+        Write-Host $s.Aviso -ForegroundColor Gray
+        if (-not (Confirmar "Parar e desativar '$($s.Label)'")) { continue }
+
+        try {
+            $estadoAnterior = [pscustomobject]@{
+                Name = $svc.Name
+                DisplayName = $svc.DisplayName
+                State = $svc.State
+                StartMode = $svc.StartMode
+                CapturedAt = (Get-Date).ToString("o")
+            }
+            $historico = @()
+            if (Test-Path -LiteralPath $ArquivoServicos) {
+                try { $historico = @(Get-Content -LiteralPath $ArquivoServicos -Raw | ConvertFrom-Json) } catch {}
+            }
+            $historico += $estadoAnterior
+            $historico | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $ArquivoServicos -Encoding UTF8
+
+            if ($svc.State -eq "Running") { Stop-Service -Name $svc.Name -Force -ErrorAction Stop }
+            Set-Service -Name $svc.Name -StartupType Disabled -ErrorAction Stop
+            Write-Host "Serviço desativado: $($s.Label)" -ForegroundColor Green
+            Log "Serviço desativado: $($svc.Name); estado anterior=$($svc.State); inicialização anterior=$($svc.StartMode)"
+        } catch {
+            Write-Host "Não foi possível alterar $($s.Label): $($_.Exception.Message)" -ForegroundColor Red
+            Log "Falha ao desativar $($s.Name): $($_.Exception.Message)"
+        }
+    }
+    Write-Host "`nRegistro das configurações anteriores: $ArquivoServicos" -ForegroundColor Cyan
 }
-catch {
 
-    Log "Não foi possível coletar módulos de memória RAM: $($_.Exception.Message)"
-}
-
-Log "Hardware de memória coletado"
-
-# ============================================================
-# DISCOS FÍSICOS (hardware, modelo, saúde)
-# ============================================================
-# Get-PhysicalDisk traz fabricante, modelo, número de série,
-# tipo de mídia (SSD/HDD), interface e status de saúde.
-# Get-StorageReliabilityCounter complementa com % de vida
-# restante quando o disco expõe esse dado.
-# Requer o módulo Storage (nativo no Win10/11) e, para dados
-# completos, execução como Administrador.
-# ============================================================
-
-Write-Host "[5/6] Coletando armazenamento..." -ForegroundColor Cyan
-
-$DiscosFisicos = @()
-
-try {
-
-    $DiscosFisicos = @(
-        Get-PhysicalDisk -ErrorAction Stop |
-        ForEach-Object {
-
-            $Disco = $_
-            $VidaRestante = $null
-            $TemperaturaC = $null
-
+function Restaurar-Servicos {
+    if (-not (Eh-Administrador)) { Write-Host "É necessário executar como administrador." -ForegroundColor Red; return }
+    if (-not (Test-Path -LiteralPath $ArquivoServicos)) {
+        Write-Host "Não há arquivo de backup de serviços neste perfil." -ForegroundColor Yellow
+        return
+    }
+    if (-not (Confirmar "Restaurar configurações anteriores dos serviços registrados")) { return }
+    try {
+        $historico = @(Get-Content -LiteralPath $ArquivoServicos -Raw | ConvertFrom-Json)
+        foreach ($s in $historico) {
             try {
-
-                $Contador = $Disco |
-                    Get-StorageReliabilityCounter -ErrorAction Stop
-
-                if ($null -ne $Contador.Wear) {
-                    $VidaRestante = 100 - $Contador.Wear
+                $tipo = switch ($s.StartMode) {
+                    "Auto" { "Automatic" }
+                    "Manual" { "Manual" }
+                    "Disabled" { "Disabled" }
+                    default { "Manual" }
                 }
-
-                if ($null -ne $Contador.Temperature -and $Contador.Temperature -gt 0) {
-                    $TemperaturaC = $Contador.Temperature
+                Set-Service -Name $s.Name -StartupType $tipo -ErrorAction Stop
+                if ($s.State -eq "Running" -and $tipo -ne "Disabled") {
+                    Start-Service -Name $s.Name -ErrorAction SilentlyContinue
                 }
-
-            }
-            catch {}
-
-            [PSCustomObject]@{
-
-                Numero            = $Disco.DeviceId
-                Fabricante        = if ($Disco.Manufacturer) { $Disco.Manufacturer.Trim() } else { $null }
-                Modelo            = if ($Disco.FriendlyName) { $Disco.FriendlyName.Trim() } else { $null }
-                NumeroSerie       = if ($Disco.SerialNumber) { $Disco.SerialNumber.Trim() } else { $null }
-                Tipo              = $Disco.MediaType
-                Interface         = $Disco.BusType
-                CapacidadeGB      = [math]::Round($Disco.Size / 1GB, 1)
-                SaudeStatus       = $Disco.HealthStatus
-                StatusOperacional = ($Disco.OperationalStatus -join ", ")
-                VidaRestantePct   = $VidaRestante
-                TemperaturaC      = $TemperaturaC
+                Write-Host "Restaurado: $($s.Name) -> $tipo" -ForegroundColor Green
+                Log "Serviço restaurado: $($s.Name) -> $tipo"
+            } catch {
+                Write-Host "Falha ao restaurar $($s.Name): $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
-    )
-
-    if ($DiscosFisicos.Count -eq 0) {
-
-        throw "Get-PhysicalDisk não retornou discos"
-    }
-
-}
-catch {
-
-    Log "Get-PhysicalDisk indisponível ou vazio, usando Win32_DiskDrive como alternativa: $($_.Exception.Message)"
-
-    $DiscosFisicos = @(
-        Get-CimInstance Win32_DiskDrive |
-        ForEach-Object {
-
-            [PSCustomObject]@{
-
-                Numero            = $_.Index
-                Fabricante        = if ($_.Manufacturer) { $_.Manufacturer.Trim() } else { $null }
-                Modelo            = if ($_.Model) { $_.Model.Trim() } else { $null }
-                NumeroSerie       = if ($_.SerialNumber) { ("$($_.SerialNumber)").Trim() } else { $null }
-                Tipo              = $null
-                Interface         = $_.InterfaceType
-                CapacidadeGB      = [math]::Round($_.Size / 1GB, 1)
-                SaudeStatus       = $_.Status
-                StatusOperacional = $_.Status
-                VidaRestantePct   = $null
-                TemperaturaC      = $null
-            }
-        }
-    )
+    } catch { Write-Host "Erro lendo backup: $($_.Exception.Message)" -ForegroundColor Red }
 }
 
-Log "Discos físicos coletados"
-
-# ============================================================
-# DISCOS LÓGICOS (espaço livre/uso por unidade)
-# ============================================================
-
-$Discos = @()
-
-foreach (
-    $D in Get-CimInstance Win32_LogicalDisk `
-        -Filter "DriveType=3"
-) {
-
-    if ($D.Size -gt 0) {
-
-        $Discos += [PSCustomObject]@{
-
-            Unidade = $D.DeviceID
-
-            TamanhoGB = [math]::Round(
-                $D.Size / 1GB,
-                1
-            )
-
-            LivreGB = [math]::Round(
-                $D.FreeSpace / 1GB,
-                1
-            )
-
-            Uso = [math]::Round(
-                (1 - ($D.FreeSpace / $D.Size)) * 100,
-                1
-            )
-        }
-    }
+function Executar-Acao {
+    param([scriptblock]$Acao)
+    try { & $Acao }
+    catch { Write-Host "Erro: $($_.Exception.Message)" -ForegroundColor Red; Log "Erro não tratado: $($_.Exception.Message)" }
+    Pausar
 }
 
-Log "Discos lógicos coletados"
-
-# ============================================================
-# ALERTAS
-# ============================================================
-
-Write-Host "[6/6] Gerando análise preventiva..." -ForegroundColor Cyan
-
-$Alertas = @()
-
-if ($RAMUso -gt 80) {
-
-    $Alertas += "Uso elevado de memória RAM"
-}
-
-if ($UsoCPU -gt 80) {
-
-    $Alertas += "Uso elevado de CPU"
-}
-
-foreach ($D in $Discos) {
-
-    if ($D.Uso -gt 85) {
-
-        $Alertas += "Disco $($D.Unidade) acima de 85%"
-    }
-}
-
-foreach ($DF in $DiscosFisicos) {
-
-    if ($DF.SaudeStatus -and $DF.SaudeStatus -notin @("Healthy", "OK")) {
-
-        $Alertas += "Disco $($DF.Modelo) com saúde: $($DF.SaudeStatus)"
-    }
-
-    if ($null -ne $DF.VidaRestantePct -and $DF.VidaRestantePct -lt 20) {
-
-        $Alertas += "Disco $($DF.Modelo) com vida restante baixa: $($DF.VidaRestantePct)%"
-    }
-}
-
-# ============================================================
-# OBJETO DO INVENTÁRIO
-# ============================================================
-
-$Objeto = [PSCustomObject]@{
-
-    data = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-
-    cliente = $Cliente
-
-    tipo_cliente = $TipoCliente
-
-    computador = $Computador
-
-    usuario = $Usuario
-
-    sistema = [PSCustomObject]@{
-
-        fabricante = $Fabricante
-
-        modelo = $Modelo
-
-        serial = $Serial
-
-        windows = $VersaoWindows
-
-        build = "$BuildWindows.$UBRWindows"
-
-        boot = $Boot
-
-        tempo_ligado_horas = if ($TempoLigado) {
-            [math]::Round(
-                $TempoLigado.TotalHours,
-                1
-            )
-        }
-        else {
-            $null
-        }
-    }
-
-    processador = [PSCustomObject]@{
-
-        modelo = $CPU
-
-        nucleos = $Nucleos
-
-        threads = $Threads
-
-        uso_percentual = $UsoCPU
-    }
-
-    memoria = [PSCustomObject]@{
-
-        total_gb = $RAMTotal
-
-        livre_gb = $RAMLivre
-
-        uso_percentual = $RAMUso
-
-        modulos = $ModulosRAM
-    }
-
-    armazenamento = [PSCustomObject]@{
-
-        discos_fisicos = $DiscosFisicos
-
-        unidades = $Discos
-    }
-
-    alertas = $Alertas
-}
-
-# ============================================================
-# GERA JSON LOCAL
-# ============================================================
-
-Write-Host ""
-Write-Host "Gerando inventário..." -ForegroundColor Yellow
-
-$PastaPC = "$Historico\$Computador"
-
-if (!(Test-Path $PastaPC)) {
-
-    New-Item `
-        -Path $PastaPC `
-        -ItemType Directory `
-        -Force |
-        Out-Null
-}
-
-$DataArquivo = Get-Date -Format "yyyyMMdd_HHmmss"
-
-$ArquivoJSON =
-    "$PastaPC\inventario_$DataArquivo.json"
-
-$JSON = $Objeto |
-    ConvertTo-Json -Depth 10
-
-$JSON |
-    Out-File `
-        -FilePath $ArquivoJSON `
-        -Encoding UTF8
-
-Log "JSON local criado"
-
-# ============================================================
-# ENVIA PARA HOSTGATOR
-# ============================================================
-
-Write-Host ""
-Write-Host "Enviando inventário para LR Tecnologia..." -ForegroundColor Yellow
-
-$StatusServidor = "NÃO TESTADO"
-
-try {
-
-    $Resposta = Invoke-RestMethod `
-        -Uri $UrlServidor `
-        -Method Post `
-        -Headers @{
-            "X-SEATTLE-KEY" = $ChaveSeattle
-        } `
-        -ContentType "application/json; charset=utf-8" `
-        -Body $JSON `
-        -ErrorAction Stop
-
-    if ($Resposta.sucesso -eq $true) {
-
-        $StatusServidor = "OK"
-
+function Menu-Manutencao {
+    do {
+        Clear-Host
         Write-Host ""
-        Write-Host "Inventário enviado com sucesso!" -ForegroundColor Green
-
-        Log "Inventário enviado para servidor com sucesso"
-
-    }
-    else {
-
-        $StatusServidor = "RECUSADO"
-
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "             MÓDULO SEATTLE - LR TECNOLOGIA" -ForegroundColor Cyan
+        Write-Host "                  MANUTENÇÃO v$Versao" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "Computador: $env:COMPUTERNAME | Usuário: $env:USERNAME" -ForegroundColor Gray
+        if (Eh-Administrador) { Write-Host "Permissão: Administrador" -ForegroundColor Green }
+        else { Write-Host "Permissão: Usuário comum - tarefas de sistema podem falhar" -ForegroundColor Yellow }
         Write-Host ""
-        Write-Host "O servidor recusou o inventário." -ForegroundColor Red
-
-        Log "Servidor recusou inventário"
-    }
-
-}
-catch {
-
-    $StatusServidor = "OFFLINE"
-
-    Write-Host ""
-    Write-Host "Não foi possível enviar o inventário." -ForegroundColor Red
-    Write-Host "O arquivo local foi preservado." -ForegroundColor Yellow
-
-    Log "Erro no envio: $($_.Exception.Message)"
-}
-
-# ============================================================
-# RESULTADO
-# ============================================================
-
-Write-Host ""
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "              INVENTÁRIO FINALIZADO" -ForegroundColor Cyan
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host ""
-
-Write-Host "Computador : " -NoNewline
-Write-Host $Computador -ForegroundColor Yellow
-
-Write-Host "Usuário    : " -NoNewline
-Write-Host $Usuario -ForegroundColor Yellow
-
-Write-Host "Fabricante : " -NoNewline
-Write-Host $Fabricante -ForegroundColor Yellow
-
-Write-Host "Modelo     : " -NoNewline
-Write-Host $Modelo -ForegroundColor Yellow
-
-Write-Host "Windows    : " -NoNewline
-Write-Host $VersaoWindows -ForegroundColor Yellow
-
-Write-Host "Boot       : " -NoNewline
-
-if ($Boot) {
-
-    Write-Host "$Boot" -ForegroundColor Yellow
-
-}
-else {
-
-    Write-Host "Não disponível" -ForegroundColor Red
-}
-
-Write-Host "Ligado há  : " -NoNewline
-
-if ($TempoLigado) {
-
-    Write-Host "$([math]::Round($TempoLigado.TotalHours,1)) horas" -ForegroundColor Yellow
-
-}
-else {
-
-    Write-Host "Não disponível" -ForegroundColor Red
-}
-
-Write-Host "CPU        : " -NoNewline
-Write-Host "$UsoCPU %" -ForegroundColor Yellow
-
-Write-Host "RAM        : " -NoNewline
-Write-Host "$RAMTotal GB / $RAMUso %" -ForegroundColor Yellow
-
-Write-Host "Servidor   : " -NoNewline
-
-if ($StatusServidor -eq "OK") {
-
-    Write-Host "ONLINE - INVENTÁRIO ARMAZENADO" -ForegroundColor Green
-
-}
-else {
-
-    Write-Host $StatusServidor -ForegroundColor Red
-}
-
-Write-Host ""
-
-# ============================================================
-# MÓDULOS DE RAM
-# ============================================================
-
-Write-Host "MEMÓRIA RAM (FÍSICO):" -ForegroundColor Cyan
-Write-Host ""
-
-foreach ($M in $ModulosRAM) {
-
-    Write-Host " - Slot $($M.Slot): $($M.Fabricante) $($M.CapacidadeGB) GB $($M.Tipo) @ $($M.VelocidadeMHz) MHz" -ForegroundColor Yellow
-}
-
-Write-Host ""
-
-# ============================================================
-# DISCOS FÍSICOS
-# ============================================================
-
-Write-Host "ARMAZENAMENTO (FÍSICO):" -ForegroundColor Cyan
-Write-Host ""
-
-foreach ($DF in $DiscosFisicos) {
-
-    Write-Host " - $($DF.Fabricante) $($DF.Modelo)" -ForegroundColor Yellow
-    Write-Host "   Tipo: $($DF.Tipo)  |  Interface: $($DF.Interface)  |  Capacidade: $($DF.CapacidadeGB) GB" -ForegroundColor Gray
-
-    Write-Host "   Saúde: " -NoNewline -ForegroundColor Gray
-
-    if ($DF.SaudeStatus -in @("Healthy", "OK")) {
-        Write-Host "$($DF.SaudeStatus)" -ForegroundColor Green -NoNewline
-    }
-    else {
-        Write-Host "$($DF.SaudeStatus)" -ForegroundColor Red -NoNewline
-    }
-
-    if ($null -ne $DF.VidaRestantePct) {
-        Write-Host "  |  Vida restante: $($DF.VidaRestantePct)%" -ForegroundColor Gray
-    }
-    else {
+        Write-Host "1 - Limpar arquivos temporários"
+        Write-Host "2 - Esvaziar Lixeira"
+        Write-Host "3 - Limpar cache DNS"
+        Write-Host "4 - Fazer backup do Registro"
+        Write-Host "5 - Verificação informativa do Registro"
+        Write-Host "6 - Limpeza de componentes do Windows (DISM)"
+        Write-Host "7 - Ativar plano de energia Desempenho Máximo"
+        Write-Host "8 - Abrir opções de energia do Windows"
+        Write-Host "9 - Desativar hibernação e suspensão automática"
+        Write-Host "10 - Sincronizar horário com servidores NTP.br"
+        Write-Host "11 - Abrir configuração de navegador padrão"
+        Write-Host "12 - Tentar desinstalar OneDrive"
+        Write-Host "13 - Limpar pastas de instaladores conhecidas"
+        Write-Host "14 - Desativar serviços opcionais (um por vez)"
+        Write-Host "15 - Restaurar configurações anteriores dos serviços"
+        Write-Host "0 - Voltar ao menu principal" -ForegroundColor Yellow
         Write-Host ""
-    }
-
-    Write-Host ""
+        $opcao = Read-Host "Selecione uma opção"
+        switch ($opcao) {
+            "1" { Executar-Acao { Limpar-Temporarios } }
+            "2" { Executar-Acao { Limpar-Lixeira } }
+            "3" { Executar-Acao { Limpar-DNS } }
+            "4" { Executar-Acao { Backup-Registro } }
+            "5" { Executar-Acao { Verificar-Registro } }
+            "6" { Executar-Acao { Limpar-ComponentesWindows } }
+            "7" { Executar-Acao { Configurar-Energia } }
+            "8" { Executar-Acao { Abrir-Energia } }
+            "9" { Executar-Acao { Configurar-Suspensao } }
+            "10" { Executar-Acao { Sincronizar-Horario } }
+            "11" { Executar-Acao { Abrir-ConfiguracaoNavegador } }
+            "12" { Executar-Acao { Desinstalar-OneDrive } }
+            "13" { Executar-Acao { Limpar-PastasInstalacaoConhecidas } }
+            "14" { Executar-Acao { Desativar-ServicosOpcionais } }
+            "15" { Executar-Acao { Restaurar-Servicos } }
+            "0" { return }
+            default { Write-Host "Opção inválida." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        }
+    } while ($true)
 }
 
-# ============================================================
-# ALERTAS
-# ============================================================
-
-if ($Alertas.Count -gt 0) {
-
-    Write-Host "ALERTAS PREVENTIVOS:" -ForegroundColor Red
-    Write-Host ""
-
-    foreach ($A in $Alertas) {
-
-        Write-Host " - $A" -ForegroundColor Yellow
-    }
-
-}
-else {
-
-    Write-Host "Nenhum alerta preventivo identificado." -ForegroundColor Green
-}
-
-# ============================================================
-# ARQUIVO LOCAL
-# ============================================================
-
-Write-Host ""
-Write-Host "Arquivo local:" -ForegroundColor Gray
-Write-Host $ArquivoJSON -ForegroundColor DarkGray
-
-Write-Host ""
-
-Log "===== FINALIZADO ====="
-
-Write-Host "Pressione ENTER para voltar ao menu..." -ForegroundColor Gray
-
-Read-Host
+Log "Início do módulo de manutenção v$Versao."
+Menu-Manutencao
+Log "Fim do módulo de manutenção v$Versao."
