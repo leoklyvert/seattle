@@ -213,44 +213,154 @@ function Get-HtmlEncoded {
 # MICROSOFT OFFICE
 # ------------------------------------------------------------
 
+# ------------------------------------------------------------
+# MICROSOFT OFFICE - V1.0.3
+# ------------------------------------------------------------
+
 function Get-OfficeInventory {
 
     $results = @()
-    $clickToRun = $false
 
-    $c2rPath = 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration'
+    $c2rPaths = @(
+        'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\ClickToRun\Configuration'
+    )
 
-    $c2r = Get-ItemProperty -Path $c2rPath `
-        -ErrorAction SilentlyContinue
+    $c2r = $null
 
-    if ($c2r) {
+    foreach ($path in $c2rPaths) {
 
-        $clickToRun = $true
+        $candidate = Get-ItemProperty -Path $path `
+            -ErrorAction SilentlyContinue
 
-        $architecture = switch ([string]$c2r.Platform) {
-            'x64' { '64 bits' }
-            'x86' { '32 bits' }
-            default { 'Nao identificada' }
-        }
-
-        $product = ConvertTo-SafeText $c2r.ProductReleaseIds
-
-        if (-not $product) {
-            $product = 'Microsoft Office Click-to-Run'
-        }
-
-        $results += [PSCustomObject]@{
-            Produto = $product
-            Versao = $c2r.VersionToReport
-            Arquitetura = $architecture
-            Idioma = $c2r.ClientCulture
-            CanalAtualizacao = $c2r.UpdateChannel
-            TecnologiaInstalacao = 'Click-to-Run'
-            LocalInstalacao = $c2r.InstallationPath
+        if ($candidate -and $candidate.VersionToReport) {
+            $c2r = $candidate
+            break
         }
     }
 
-    if (-not $clickToRun) {
+    if ($c2r) {
+
+        $releaseIds = @(
+            ([string]$c2r.ProductReleaseIds -split ',') |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+        )
+
+        foreach ($releaseId in $releaseIds) {
+
+            $productName = switch -Regex ($releaseId) {
+
+                '^ProPlus2024Volume$' {
+                    'Microsoft Office LTSC Professional Plus 2024'
+                    break
+                }
+
+                '^Standard2024Volume$' {
+                    'Microsoft Office LTSC Standard 2024'
+                    break
+                }
+
+                '^ProPlus2021Volume$' {
+                    'Microsoft Office LTSC Professional Plus 2021'
+                    break
+                }
+
+                '^Standard2021Volume$' {
+                    'Microsoft Office LTSC Standard 2021'
+                    break
+                }
+
+                '^ProPlus2019Volume$' {
+                    'Microsoft Office Professional Plus 2019'
+                    break
+                }
+
+                '^Standard2019Volume$' {
+                    'Microsoft Office Standard 2019'
+                    break
+                }
+
+                '^O365ProPlusRetail$' {
+                    'Microsoft 365 Apps for enterprise'
+                    break
+                }
+
+                '^O365BusinessRetail$' {
+                    'Microsoft 365 Apps for business'
+                    break
+                }
+
+                '^HomeBusiness2024Retail$' {
+                    'Microsoft Office Home and Business 2024'
+                    break
+                }
+
+                '^HomeStudent2024Retail$' {
+                    'Microsoft Office Home and Student 2024'
+                    break
+                }
+
+                default {
+                    "Microsoft Office ($releaseId)"
+                }
+            }
+
+            $architecture = switch ([string]$c2r.Platform) {
+                'x64' { '64 bits' }
+                'x86' { '32 bits' }
+                default { 'Nao identificado' }
+            }
+
+            $language = ConvertTo-SafeText $c2r.ClientCulture
+
+            if ($language -eq 'pt-br') {
+                $language = 'Portugues (Brasil)'
+            }
+            elseif ($language -eq 'en-us') {
+                $language = 'Ingles (Estados Unidos)'
+            }
+            elseif (-not $language) {
+                $language = 'Nao identificado'
+            }
+
+            $channel = ConvertTo-SafeText $c2r.UpdateChannel
+
+            if (-not $channel) {
+                $channel = 'Nao identificado'
+            }
+
+            $results += [PSCustomObject]@{
+
+                Produto = $productName
+
+                IdentificadorProduto = $releaseId
+
+                Versao = if ($c2r.VersionToReport) {
+                    $c2r.VersionToReport
+                }
+                else {
+                    'Nao identificada'
+                }
+
+                Arquitetura = $architecture
+
+                Idioma = $language
+
+                CanalAtualizacao = $channel
+
+                TecnologiaInstalacao = 'Click-to-Run'
+
+                LocalInstalacao = $c2r.InstallationPath
+            }
+        }
+    }
+
+    # --------------------------------------------------------
+    # FALLBACK: REGISTROS DE DESINSTALACAO
+    # --------------------------------------------------------
+
+    if ($results.Count -eq 0) {
 
         $paths = @(
             'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -287,18 +397,61 @@ function Get-OfficeInventory {
                     }
 
                     $results += [PSCustomObject]@{
+
                         Produto = $name
-                        Versao = $entry.DisplayVersion
+
+                        IdentificadorProduto = 'Nao identificado'
+
+                        Versao = if ($entry.DisplayVersion) {
+                            $entry.DisplayVersion
+                        }
+                        else {
+                            'Nao identificada'
+                        }
+
                         Arquitetura = $architecture
+
                         Idioma = 'Nao identificado'
+
                         CanalAtualizacao = 'Nao identificado'
-                        TecnologiaInstalacao = 'Instalacao tradicional/MSI ou registro de desinstalacao'
+
+                        TecnologiaInstalacao = 'Registro de desinstalacao'
+
                         LocalInstalacao = $entry.InstallLocation
                     }
                 }
             }
         }
     }
+
+    # --------------------------------------------------------
+    # RESULTADO
+    # --------------------------------------------------------
+
+    if ($results.Count -eq 0) {
+
+        $results += [PSCustomObject]@{
+
+            Produto = 'Microsoft Office nao identificado'
+
+            IdentificadorProduto = 'Nao identificado'
+
+            Versao = 'Nao identificada'
+
+            Arquitetura = 'Nao identificada'
+
+            Idioma = 'Nao identificado'
+
+            CanalAtualizacao = 'Nao identificado'
+
+            TecnologiaInstalacao = 'Nao identificada'
+
+            LocalInstalacao = $null
+        }
+    }
+
+    return @($results | Sort-Object Produto, Versao -Unique)
+}
 
     return @($results | Sort-Object Produto, Versao -Unique)
 }
@@ -307,138 +460,149 @@ function Get-OfficeInventory {
 # GEOLOCALIZACAO
 # ------------------------------------------------------------
 
-function Get-ComputerLocation {
+# ------------------------------------------------------------
+# IDENTIFICACAO DO COMPUTADOR - V1.0.3
+# ------------------------------------------------------------
 
-    $result = [PSCustomObject]@{
-        Disponivel = $false
-        Latitude = $null
-        Longitude = $null
-        PrecisaoMetros = $null
-        DataHora = $null
-        Metodo = 'Nao disponivel'
-        Provedor = $null
-        Cidade = $null
-        Regiao = $null
-        Pais = $null
-        Observacao = $null
+function Get-ComputerInventory {
+
+    $computer = Get-CimInstance Win32_ComputerSystem `
+        -ErrorAction SilentlyContinue
+
+    $bios = Get-CimInstance Win32_BIOS `
+        -ErrorAction SilentlyContinue
+
+    $board = Get-CimInstance Win32_BaseBoard `
+        -ErrorAction SilentlyContinue
+
+    $os = Get-CimInstance Win32_OperatingSystem `
+        -ErrorAction SilentlyContinue
+
+    $product = Get-CimInstance Win32_ComputerSystemProduct `
+        -ErrorAction SilentlyContinue
+
+    $registry = Get-ItemProperty `
+        'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' `
+        -ErrorAction SilentlyContinue
+
+    # --------------------------------------------------------
+    # NUMERO DE SERIE
+    # --------------------------------------------------------
+
+    $serial = Get-ValidSerialNumber $bios.SerialNumber
+
+    $serialSource = 'BIOS'
+
+    if (-not $serial) {
+
+        $serial = Get-ValidSerialNumber $product.IdentifyingNumber
+
+        $serialSource = 'SMBIOS'
+    }
+
+    if (-not $serial) {
+
+        $serial = 'NAO IDENTIFICADO'
+
+        $serialSource = 'Nenhuma fonte retornou numero valido'
     }
 
     # --------------------------------------------------------
-    # PRIMEIRA TENTATIVA: SERVICO DE LOCALIZACAO DO WINDOWS
+    # DELL SERVICE TAG
     # --------------------------------------------------------
 
-    try {
+    $manufacturer = ConvertTo-SafeText $computer.Manufacturer
 
-        Add-Type -AssemblyName System.Device -ErrorAction Stop
+    $serviceTag = 'NAO IDENTIFICADO'
 
-        $watcher = New-Object System.Device.Location.GeoCoordinateWatcher
+    $expressServiceCode = 'NAO IDENTIFICADO'
 
-        $watcher.Start()
+    if ($manufacturer -match 'Dell') {
 
-        $timeout = (Get-Date).AddSeconds(7)
+        $serviceTagValue = Get-ValidSerialNumber $bios.SerialNumber
 
-        while (
-            $watcher.Status -ne 'Ready' -and
-            (Get-Date) -lt $timeout
-        ) {
-            Start-Sleep -Milliseconds 300
+        if (-not $serviceTagValue) {
+
+            $serviceTagValue = Get-ValidSerialNumber $product.IdentifyingNumber
         }
 
-        if (
-            $watcher.Status -eq 'Ready' -and
-            $watcher.Position.Location -and
-            -not $watcher.Position.Location.IsUnknown
-        ) {
+        if ($serviceTagValue) {
 
-            $position = $watcher.Position.Location
-
-            if (
-                $position.Latitude -ge -90 -and
-                $position.Latitude -le 90 -and
-                $position.Longitude -ge -180 -and
-                $position.Longitude -le 180
-            ) {
-
-                $result.Disponivel = $true
-                $result.Latitude = [math]::Round($position.Latitude, 6)
-                $result.Longitude = [math]::Round($position.Longitude, 6)
-
-                if ($position.HorizontalAccuracy -gt 0) {
-                    $result.PrecisaoMetros = [math]::Round(
-                        $position.HorizontalAccuracy,
-                        1
-                    )
-                }
-
-                $result.DataHora = (Get-Date).ToString('o')
-                $result.Metodo = 'Servico de localizacao do Windows'
-                $result.Provedor = 'Windows'
-
-                $result.Observacao = 'Localizacao obtida por fonte local autorizada do Windows.'
-            }
+            $serviceTag = $serviceTagValue
         }
-
-        $watcher.Stop()
-        $watcher.Dispose()
-    }
-    catch {
-        $result.Observacao = 'Servico de localizacao do Windows indisponivel ou sem permissao.'
-    }
-
-    if ($result.Disponivel) {
-        return $result
     }
 
     # --------------------------------------------------------
-    # SEGUNDA TENTATIVA: LOCALIZACAO APROXIMADA POR IP
+    # RESULTADO
     # --------------------------------------------------------
 
-    try {
+    [PSCustomObject]@{
 
-        $response = Invoke-RestMethod `
-            -Uri 'https://ipwho.is/' `
-            -Method Get `
-            -TimeoutSec 8 `
-            -ErrorAction Stop
+        NomeComputador = $env:COMPUTERNAME
 
-        if (
-            $response.success -eq $true -and
-            $null -ne $response.latitude -and
-            $null -ne $response.longitude
-        ) {
+        UsuarioLogado = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-            $result.Disponivel = $true
-            $result.Latitude = [math]::Round(
-                [double]$response.latitude,
-                6
-            )
+        Fabricante = $computer.Manufacturer
 
-            $result.Longitude = [math]::Round(
-                [double]$response.longitude,
-                6
-            )
+        Modelo = $computer.Model
 
-            $result.DataHora = (Get-Date).ToString('o')
-            $result.Metodo = 'Geolocalizacao aproximada por IP'
-            $result.Provedor = 'ipwho.is'
+        DominioOuGrupo = $computer.Domain
 
-            $result.Cidade = $response.city
-            $result.Regiao = $response.region
-            $result.Pais = $response.country
+        ParticipaDominio = $computer.PartOfDomain
 
-            # O provedor nao fornece precisao confiavel em metros.
-            $result.PrecisaoMetros = $null
+        NumeroSerie = $serial
 
-            $result.Observacao = 'Localizacao aproximada. Nao representa necessariamente a posicao fisica exata do equipamento.'
+        OrigemNumeroSerie = $serialSource
+
+        NumeroSerieBIOS = if ($bios.SerialNumber) {
+            $bios.SerialNumber
         }
-    }
-    catch {
-        $result.Observacao = 'Localizacao do Windows e geolocalizacao por IP indisponiveis.'
-    }
+        else {
+            'NAO IDENTIFICADO'
+        }
 
-    return $result
+        IdentificadorSMBIOS = if ($product.IdentifyingNumber) {
+            $product.IdentifyingNumber
+        }
+        else {
+            'NAO IDENTIFICADO'
+        }
+
+        DellServiceTag = $serviceTag
+
+        DellExpressServiceCode = $expressServiceCode
+
+        FabricanteBIOS = $bios.Manufacturer
+
+        VersaoBIOS = $bios.SMBIOSBIOSVersion
+
+        DataBIOS = $bios.ReleaseDate
+
+        PlacaMaeFabricante = $board.Manufacturer
+
+        PlacaMaeModelo = $board.Product
+
+        PlacaMaeVersao = $board.Version
+
+        PlacaMaeNumeroSerie = $board.SerialNumber
+
+        Windows = $os.Caption
+
+        VersaoWindows = $os.Version
+
+        BuildWindows = $os.BuildNumber
+
+        Arquitetura = $os.OSArchitecture
+
+        EdicaoWindows = $registry.EditionID
+
+        DisplayVersion = $registry.DisplayVersion
+
+        DataInstalacaoWindows = $os.InstallDate
+
+        UltimoBoot = $os.LastBootUpTime
+    }
 }
-
 # ------------------------------------------------------------
 # IDENTIFICACAO DO COMPUTADOR
 # ------------------------------------------------------------
@@ -1413,41 +1577,257 @@ try {
 
     $network = Get-NetworkInventory
 
+    # ------------------------------------------------------------
+# GEOLOCALIZACAO - V1.0.3
+# ------------------------------------------------------------
+
+function Get-ComputerLocation {
+
+    $result = [PSCustomObject]@{
+
+        Disponivel = $false
+
+        Latitude = $null
+
+        Longitude = $null
+
+        PrecisaoMetros = $null
+
+        DataHora = $null
+
+        Metodo = 'NAO IDENTIFICADO'
+
+        Provedor = 'NAO IDENTIFICADO'
+
+        Cidade = 'NAO IDENTIFICADA'
+
+        Regiao = 'NAO IDENTIFICADA'
+
+        Pais = 'NAO IDENTIFICADO'
+
+        Observacao = $null
+
+        StatusServicoWindows = 'Nao verificado'
+
+        ErroWindows = $null
+
+        ErroIP = $null
+    }
+
     # --------------------------------------------------------
-    # GEOLOCALIZACAO
+    # VERIFICAR SERVICO DO WINDOWS
     # --------------------------------------------------------
 
-    Write-Host ''
-    Write-Host '[6/7] Obtendo localizacao do equipamento...' -ForegroundColor Green
+    $service = Get-Service -Name lfsvc `
+        -ErrorAction SilentlyContinue
 
-    $location = $null
+    if ($service) {
+
+        $result.StatusServicoWindows = [string]$service.Status
+
+        if ($service.StartType -eq 'Disabled') {
+
+            $result.StatusServicoWindows = 'Desativado'
+        }
+    }
+    else {
+
+        $result.StatusServicoWindows = 'Servico indisponivel'
+    }
+
+    # --------------------------------------------------------
+    # PRIMEIRA TENTATIVA: WINDOWS
+    # --------------------------------------------------------
+
+    $watcher = $null
 
     try {
 
-        $location = Get-ComputerLocation
+        Add-Type -AssemblyName System.Device -ErrorAction Stop
 
-        if ($null -ne $location) {
+        $watcher = New-Object -TypeName System.Device.Location.GeoCoordinateWatcher
 
-            Write-Host '      Localizacao obtida.' -ForegroundColor Green
+        $watcher.Start()
 
-            Write-Host "      Metodo: $($location.Metodo)" -ForegroundColor Gray
+        $timeout = (Get-Date).AddSeconds(7)
 
-            if ($location.Cidade) {
-                Write-Host "      Localidade: $($location.Cidade) / $($location.Regiao)" -ForegroundColor Gray
+        while (
+            [string]$watcher.Status -ne 'Ready' -and
+            (Get-Date) -lt $timeout
+        ) {
+
+            Start-Sleep -Milliseconds 300
+        }
+
+        if (
+            [string]$watcher.Status -eq 'Ready' -and
+            $watcher.Position.Location -and
+            -not $watcher.Position.Location.IsUnknown
+        ) {
+
+            $position = $watcher.Position.Location
+
+            if (
+                $position.Latitude -ge -90 -and
+                $position.Latitude -le 90 -and
+                $position.Longitude -ge -180 -and
+                $position.Longitude -le 180
+            ) {
+
+                $result.Disponivel = $true
+
+                $result.Latitude = [math]::Round(
+                    $position.Latitude,
+                    6
+                )
+
+                $result.Longitude = [math]::Round(
+                    $position.Longitude,
+                    6
+                )
+
+                if ($position.HorizontalAccuracy -gt 0) {
+
+                    $result.PrecisaoMetros = [math]::Round(
+                        $position.HorizontalAccuracy,
+                        1
+                    )
+                }
+
+                $result.DataHora = (Get-Date).ToString('o')
+
+                $result.Metodo = 'Servico de localizacao do Windows'
+
+                $result.Provedor = 'Windows'
+
+                $result.Observacao = 'Localizacao obtida pelo Windows.'
+
+            }
+        }
+
+        if (-not $result.Disponivel) {
+
+            $result.ErroWindows = 'O servico nao forneceu coordenadas validas.'
+        }
+    }
+    catch {
+
+        $result.ErroWindows = $_.Exception.Message
+    }
+    finally {
+
+        if ($null -ne $watcher) {
+
+            try {
+                $watcher.Stop()
+                $watcher.Dispose()
+            }
+            catch {}
+        }
+    }
+
+    if ($result.Disponivel) {
+
+        return $result
+    }
+
+    # --------------------------------------------------------
+    # SEGUNDA TENTATIVA: IP
+    # --------------------------------------------------------
+
+    try {
+
+        $response = Invoke-RestMethod `
+            -Uri 'https://ipwho.is/' `
+            -Method Get `
+            -TimeoutSec 10 `
+            -ErrorAction Stop
+
+        if (
+            $response.success -eq $true -and
+            $null -ne $response.latitude -and
+            $null -ne $response.longitude
+        ) {
+
+            $latitude = [double]$response.latitude
+
+            $longitude = [double]$response.longitude
+
+            if (
+                $latitude -ge -90 -and
+                $latitude -le 90 -and
+                $longitude -ge -180 -and
+                $longitude -le 180
+            ) {
+
+                $result.Disponivel = $true
+
+                $result.Latitude = [math]::Round($latitude, 6)
+
+                $result.Longitude = [math]::Round($longitude, 6)
+
+                $result.PrecisaoMetros = $null
+
+                $result.DataHora = (Get-Date).ToString('o')
+
+                $result.Metodo = 'Geolocalizacao aproximada por IP'
+
+                $result.Provedor = 'ipwho.is'
+
+                $result.Cidade = if ($response.city) {
+                    $response.city
+                }
+                else {
+                    'NAO IDENTIFICADA'
+                }
+
+                $result.Regiao = if ($response.region) {
+                    $response.region
+                }
+                else {
+                    'NAO IDENTIFICADA'
+                }
+
+                $result.Pais = if ($response.country) {
+                    $response.country
+                }
+                else {
+                    'NAO IDENTIFICADO'
+                }
+
+                $result.Observacao = 'Localizacao aproximada pelo IP publico. Nao representa necessariamente a posicao fisica exata do equipamento.'
+            }
+            else {
+
+                $result.ErroIP = 'O provedor retornou coordenadas fora dos limites validos.'
             }
         }
         else {
 
-            Write-Host '      Localizacao nao disponivel.' -ForegroundColor Yellow
+            $result.ErroIP = if ($response.message) {
+                [string]$response.message
+            }
+            else {
+                'O provedor nao retornou uma localizacao valida.'
+            }
         }
-
     }
     catch {
 
-        Write-Warning "Falha na geolocalizacao: $($_.Exception.Message)"
-
-        $location = $null
+        $result.ErroIP = $_.Exception.Message
     }
+
+    if (-not $result.Disponivel) {
+
+        $result.Metodo = 'NAO IDENTIFICADO'
+
+        $result.Provedor = 'NAO IDENTIFICADO'
+
+        $result.Observacao = 'Nenhuma fonte de geolocalizacao forneceu dados validos.'
+    }
+
+    return $result
+}
 
     # --------------------------------------------------------
     # MONTAGEM DO INVENTARIO
@@ -1462,7 +1842,7 @@ try {
 
         Produto = 'Seattle Inventory'
 
-        Versao = '1.0.2'
+        Versao = '1.0.3'
 
         Desenvolvedor = 'LR Tecnologia'
 
