@@ -1,5 +1,5 @@
 # ============================================================
-# SEATTLE INVENTORY V1.0.1
+# SEATTLE INVENTORY V1.0.2
 # LR Tecnologia
 # Inventario local de hardware, software e rede
 #
@@ -10,23 +10,38 @@
 # - Nao altera configuracoes
 # - Nao instala programas
 # - Nao executa varredura ativa na rede
-# - Nao transmite dados pela internet
+# - Nao transmite o inventario pela internet
 # - Nao coleta senhas ou chaves de produto
 #
 # SAIDAS:
 # - Arquivo JSON completo
 # - Relatorio HTML visual e interativo
+#
+# V1.0.2:
+# - Identificacao aprimorada do equipamento
+# - Numero de serie e Dell Service Tag
+# - Inventario do Microsoft Office
+# - Geolocalizacao por servicos do Windows
+# - Fallback aproximado por IP
+# - Armazenamento local em pasta reservada
 # ============================================================
 
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory = (
-        Join-Path ([Environment]::GetFolderPath('Desktop')) 'SeattleInventory'
-    )
+    [string]$OutputDirectory
 )
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
+
+# ------------------------------------------------------------
+# DIRETORIO PADRAO
+# ------------------------------------------------------------
+
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $env:ProgramData `
+        "LR Tecnologia\Seattle\Inventarios\$env:COMPUTERNAME"
+}
 
 # ------------------------------------------------------------
 # FUNCOES AUXILIARES
@@ -51,7 +66,36 @@ function ConvertTo-SafeText {
 
     $text = [string]$Value
     $text = $text -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', ''
+
     return $text.Trim()
+}
+
+function Get-ValidSerialNumber {
+    param($Value)
+
+    $serial = ConvertTo-SafeText $Value
+
+    if ([string]::IsNullOrWhiteSpace($serial)) {
+        return $null
+    }
+
+    $invalidValues = @(
+        'TO BE FILLED BY O.E.M.',
+        'DEFAULT STRING',
+        'SYSTEM SERIAL NUMBER',
+        'NONE',
+        'UNKNOWN',
+        'NOT APPLICABLE',
+        'N/A',
+        '123456789',
+        '0'
+    )
+
+    if ($invalidValues -contains $serial.ToUpper()) {
+        return $null
+    }
+
+    return $serial
 }
 
 function Get-MemoryType {
@@ -166,6 +210,236 @@ function Get-HtmlEncoded {
 }
 
 # ------------------------------------------------------------
+# MICROSOFT OFFICE
+# ------------------------------------------------------------
+
+function Get-OfficeInventory {
+
+    $results = @()
+    $clickToRun = $false
+
+    $c2rPath = 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration'
+
+    $c2r = Get-ItemProperty -Path $c2rPath `
+        -ErrorAction SilentlyContinue
+
+    if ($c2r) {
+
+        $clickToRun = $true
+
+        $architecture = switch ([string]$c2r.Platform) {
+            'x64' { '64 bits' }
+            'x86' { '32 bits' }
+            default { 'Nao identificada' }
+        }
+
+        $product = ConvertTo-SafeText $c2r.ProductReleaseIds
+
+        if (-not $product) {
+            $product = 'Microsoft Office Click-to-Run'
+        }
+
+        $results += [PSCustomObject]@{
+            Produto = $product
+            Versao = $c2r.VersionToReport
+            Arquitetura = $architecture
+            Idioma = $c2r.ClientCulture
+            CanalAtualizacao = $c2r.UpdateChannel
+            TecnologiaInstalacao = 'Click-to-Run'
+            LocalInstalacao = $c2r.InstallationPath
+        }
+    }
+
+    if (-not $clickToRun) {
+
+        $paths = @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        )
+
+        foreach ($path in $paths) {
+
+            $entries = Get-ItemProperty -Path $path `
+                -ErrorAction SilentlyContinue
+
+            foreach ($entry in $entries) {
+
+                $name = ConvertTo-SafeText $entry.DisplayName
+
+                if (
+                    $name -match 'Microsoft 365' -or
+                    $name -match 'Microsoft Office' -or
+                    $name -match 'Microsoft Visio' -or
+                    $name -match 'Microsoft Project'
+                ) {
+
+                    $architecture = 'Nao identificada'
+
+                    if ($path -match 'WOW6432Node') {
+                        $architecture = '32 bits'
+                    }
+                    elseif ($entry.InstallLocation -match 'Program Files \(x86\)') {
+                        $architecture = '32 bits'
+                    }
+                    elseif ($entry.InstallLocation -match 'Program Files') {
+                        $architecture = '64 bits'
+                    }
+
+                    $results += [PSCustomObject]@{
+                        Produto = $name
+                        Versao = $entry.DisplayVersion
+                        Arquitetura = $architecture
+                        Idioma = 'Nao identificado'
+                        CanalAtualizacao = 'Nao identificado'
+                        TecnologiaInstalacao = 'Instalacao tradicional/MSI ou registro de desinstalacao'
+                        LocalInstalacao = $entry.InstallLocation
+                    }
+                }
+            }
+        }
+    }
+
+    return @($results | Sort-Object Produto, Versao -Unique)
+}
+
+# ------------------------------------------------------------
+# GEOLOCALIZACAO
+# ------------------------------------------------------------
+
+function Get-ComputerLocation {
+
+    $result = [PSCustomObject]@{
+        Disponivel = $false
+        Latitude = $null
+        Longitude = $null
+        PrecisaoMetros = $null
+        DataHora = $null
+        Metodo = 'Nao disponivel'
+        Provedor = $null
+        Cidade = $null
+        Regiao = $null
+        Pais = $null
+        Observacao = $null
+    }
+
+    # --------------------------------------------------------
+    # PRIMEIRA TENTATIVA: SERVICO DE LOCALIZACAO DO WINDOWS
+    # --------------------------------------------------------
+
+    try {
+
+        Add-Type -AssemblyName System.Device -ErrorAction Stop
+
+        $watcher = New-Object System.Device.Location.GeoCoordinateWatcher
+
+        $watcher.Start()
+
+        $timeout = (Get-Date).AddSeconds(7)
+
+        while (
+            $watcher.Status -ne 'Ready' -and
+            (Get-Date) -lt $timeout
+        ) {
+            Start-Sleep -Milliseconds 300
+        }
+
+        if (
+            $watcher.Status -eq 'Ready' -and
+            $watcher.Position.Location -and
+            -not $watcher.Position.Location.IsUnknown
+        ) {
+
+            $position = $watcher.Position.Location
+
+            if (
+                $position.Latitude -ge -90 -and
+                $position.Latitude -le 90 -and
+                $position.Longitude -ge -180 -and
+                $position.Longitude -le 180
+            ) {
+
+                $result.Disponivel = $true
+                $result.Latitude = [math]::Round($position.Latitude, 6)
+                $result.Longitude = [math]::Round($position.Longitude, 6)
+
+                if ($position.HorizontalAccuracy -gt 0) {
+                    $result.PrecisaoMetros = [math]::Round(
+                        $position.HorizontalAccuracy,
+                        1
+                    )
+                }
+
+                $result.DataHora = (Get-Date).ToString('o')
+                $result.Metodo = 'Servico de localizacao do Windows'
+                $result.Provedor = 'Windows'
+
+                $result.Observacao = 'Localizacao obtida por fonte local autorizada do Windows.'
+            }
+        }
+
+        $watcher.Stop()
+        $watcher.Dispose()
+    }
+    catch {
+        $result.Observacao = 'Servico de localizacao do Windows indisponivel ou sem permissao.'
+    }
+
+    if ($result.Disponivel) {
+        return $result
+    }
+
+    # --------------------------------------------------------
+    # SEGUNDA TENTATIVA: LOCALIZACAO APROXIMADA POR IP
+    # --------------------------------------------------------
+
+    try {
+
+        $response = Invoke-RestMethod `
+            -Uri 'https://ipwho.is/' `
+            -Method Get `
+            -TimeoutSec 8 `
+            -ErrorAction Stop
+
+        if (
+            $response.success -eq $true -and
+            $null -ne $response.latitude -and
+            $null -ne $response.longitude
+        ) {
+
+            $result.Disponivel = $true
+            $result.Latitude = [math]::Round(
+                [double]$response.latitude,
+                6
+            )
+
+            $result.Longitude = [math]::Round(
+                [double]$response.longitude,
+                6
+            )
+
+            $result.DataHora = (Get-Date).ToString('o')
+            $result.Metodo = 'Geolocalizacao aproximada por IP'
+            $result.Provedor = 'ipwho.is'
+
+            $result.Cidade = $response.city
+            $result.Regiao = $response.region
+            $result.Pais = $response.country
+
+            # O provedor nao fornece precisao confiavel em metros.
+            $result.PrecisaoMetros = $null
+
+            $result.Observacao = 'Localizacao aproximada. Nao representa necessariamente a posicao fisica exata do equipamento.'
+        }
+    }
+    catch {
+        $result.Observacao = 'Localizacao do Windows e geolocalizacao por IP indisponiveis.'
+    }
+
+    return $result
+}
+
+# ------------------------------------------------------------
 # IDENTIFICACAO DO COMPUTADOR
 # ------------------------------------------------------------
 
@@ -175,10 +449,35 @@ function Get-ComputerInventory {
     $bios = Get-CimInstance Win32_BIOS
     $board = Get-CimInstance Win32_BaseBoard
     $os = Get-CimInstance Win32_OperatingSystem
+    $product = Get-CimInstance Win32_ComputerSystemProduct `
+        -ErrorAction SilentlyContinue
 
     $registry = Get-ItemProperty `
         'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' `
         -ErrorAction SilentlyContinue
+
+    $serial = Get-ValidSerialNumber $bios.SerialNumber
+
+    if (-not $serial) {
+        $serial = Get-ValidSerialNumber $product.IdentifyingNumber
+    }
+
+    $manufacturer = ConvertTo-SafeText $computer.Manufacturer
+
+    $serviceTag = $null
+    $expressServiceCode = 'Nao disponivel'
+
+    if ($manufacturer -match 'Dell') {
+
+        $serviceTag = Get-ValidSerialNumber $bios.SerialNumber
+
+        if (-not $serviceTag) {
+            $serviceTag = Get-ValidSerialNumber $product.IdentifyingNumber
+        }
+
+        # O Express Service Code nao sera estimado.
+        # So sera preenchido futuramente se houver metodo validado.
+    }
 
     [PSCustomObject]@{
 
@@ -191,7 +490,13 @@ function Get-ComputerInventory {
         DominioOuGrupo = $computer.Domain
         ParticipaDominio = $computer.PartOfDomain
 
+        NumeroSerie = $serial
         NumeroSerieBIOS = $bios.SerialNumber
+        IdentificadorSMBIOS = $product.IdentifyingNumber
+
+        DellServiceTag = $serviceTag
+        DellExpressServiceCode = $expressServiceCode
+
         FabricanteBIOS = $bios.Manufacturer
         VersaoBIOS = $bios.SMBIOSBIOSVersion
         DataBIOS = $bios.ReleaseDate
@@ -213,7 +518,6 @@ function Get-ComputerInventory {
         UltimoBoot = $os.LastBootUpTime
     }
 }
-
 # ------------------------------------------------------------
 # HARDWARE
 # ------------------------------------------------------------
@@ -270,7 +574,8 @@ function Get-HardwareInventory {
                     $_.CurrentVerticalResolution
                 ) {
                     "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)"
-                } else {
+                }
+                else {
                     $null
                 }
 
@@ -320,13 +625,15 @@ function Get-HardwareInventory {
 
                 LivrePercentual = if ($_.Size -gt 0) {
                     [math]::Round(($_.FreeSpace / $_.Size) * 100, 1)
-                } else {
+                }
+                else {
                     $null
                 }
 
                 OcupadoPercentual = if ($_.Size -gt 0) {
                     [math]::Round((($_.Size - $_.FreeSpace) / $_.Size) * 100, 1)
-                } else {
+                }
+                else {
                     $null
                 }
             }
@@ -359,13 +666,15 @@ function Get-HardwareInventory {
 
                     TemperaturaC = if ($reliability) {
                         $reliability.Temperature
-                    } else {
+                    }
+                    else {
                         $null
                     }
 
                     HorasLigado = if ($reliability) {
                         $reliability.PowerOnHours
-                    } else {
+                    }
+                    else {
                         $null
                     }
                 }
@@ -445,7 +754,8 @@ function Get-HardwareInventory {
 
     $battery = @()
 
-    $batteryInfo = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue
+    $batteryInfo = Get-CimInstance Win32_Battery `
+        -ErrorAction SilentlyContinue
 
     if ($batteryInfo) {
 
@@ -467,6 +777,7 @@ function Get-HardwareInventory {
     $batteryDesign = @()
 
     try {
+
         $batteryDesign = @(Get-CimInstance `
             -Namespace root\wmi `
             -ClassName BatteryStaticData `
@@ -486,6 +797,7 @@ function Get-HardwareInventory {
     $batteryFull = @()
 
     try {
+
         $batteryFull = @(Get-CimInstance `
             -Namespace root\wmi `
             -ClassName BatteryFullChargedCapacity `
@@ -515,20 +827,32 @@ function Get-HardwareInventory {
         CapacidadeAtualBateria = $batteryFull
     }
 }
-
-# ------------------------------------------------------------
+# ============================================================
 # SOFTWARE E SEGURANCA
-# ------------------------------------------------------------
+# ============================================================
 
 function Get-SoftwareInventory {
 
-    Write-Host '  Programas instalados...'
+    Write-Host '  Programas instalados...' -ForegroundColor Gray
 
-    $programs = Get-InstalledSoftware
+    $programs = @(Get-InstalledSoftware)
 
-    Write-Host '  Licenciamento Windows...'
+    # --------------------------------------------------------
+    # MICROSOFT OFFICE
+    # --------------------------------------------------------
 
-    $license = @(Get-CimInstance SoftwareLicensingProduct |
+    Write-Host '  Microsoft Office...' -ForegroundColor Gray
+
+    $office = @(Get-OfficeInventory)
+
+    # --------------------------------------------------------
+    # LICENCIAMENTO WINDOWS
+    # --------------------------------------------------------
+
+    Write-Host '  Licenciamento Windows...' -ForegroundColor Gray
+
+    $license = @(
+        Get-CimInstance SoftwareLicensingProduct -ErrorAction SilentlyContinue |
         Where-Object {
             $_.PartialProductKey -and
             $_.Name -like 'Windows*'
@@ -552,14 +876,20 @@ function Get-SoftwareInventory {
                 EstadoAtivacao = $status
                 ChaveProduto = '[NAO COLETADA]'
             }
-        })
+        }
+    )
 
-    Write-Host '  Antivirus...'
+    # --------------------------------------------------------
+    # ANTIVIRUS
+    # --------------------------------------------------------
 
-    $antivirus = @(Get-CimInstance `
-        -Namespace root\SecurityCenter2 `
-        -ClassName AntivirusProduct `
-        -ErrorAction SilentlyContinue |
+    Write-Host '  Antivirus...' -ForegroundColor Gray
+
+    $antivirus = @(
+        Get-CimInstance `
+            -Namespace root\SecurityCenter2 `
+            -ClassName AntivirusProduct `
+            -ErrorAction SilentlyContinue |
         ForEach-Object {
 
             [PSCustomObject]@{
@@ -568,29 +898,49 @@ function Get-SoftwareInventory {
                 EstadoBruto = $_.productState
                 Interpretacao = 'Estado bruto coletado; requer validacao especifica do produto'
             }
-        })
+        }
+    )
 
-    Write-Host '  Firewall...'
+    # --------------------------------------------------------
+    # FIREWALL
+    # --------------------------------------------------------
+
+    Write-Host '  Firewall...' -ForegroundColor Gray
 
     $firewall = @()
 
     if (Get-Command Get-NetFirewallProfile -ErrorAction SilentlyContinue) {
 
-        $firewall = @(Get-NetFirewallProfile |
-            ForEach-Object {
+        try {
 
-                [PSCustomObject]@{
-                    Perfil = $_.Name
-                    Habilitado = $_.Enabled
-                    AcaoEntrada = [string]$_.DefaultInboundAction
-                    AcaoSaida = [string]$_.DefaultOutboundAction
+            $firewall = @(
+                Get-NetFirewallProfile -ErrorAction Stop |
+                ForEach-Object {
+
+                    [PSCustomObject]@{
+                        Perfil = $_.Name
+                        Habilitado = $_.Enabled
+                        AcaoEntrada = [string]$_.DefaultInboundAction
+                        AcaoSaida = [string]$_.DefaultOutboundAction
+                    }
                 }
-            })
+            )
+
+        }
+        catch {
+
+            Write-Warning "Nao foi possivel consultar o Firewall: $($_.Exception.Message)"
+        }
     }
 
-    Write-Host '  Atualizacoes instaladas...'
+    # --------------------------------------------------------
+    # ATUALIZACOES INSTALADAS
+    # --------------------------------------------------------
 
-    $updates = @(Get-HotFix |
+    Write-Host '  Atualizacoes instaladas...' -ForegroundColor Gray
+
+    $updates = @(
+        Get-HotFix -ErrorAction SilentlyContinue |
         ForEach-Object {
 
             [PSCustomObject]@{
@@ -599,11 +949,17 @@ function Get-SoftwareInventory {
                 InstaladoPor = $_.InstalledBy
                 DataInstalacao = $_.InstalledOn
             }
-        })
+        }
+    )
 
-    Write-Host '  Drivers...'
+    # --------------------------------------------------------
+    # DRIVERS
+    # --------------------------------------------------------
 
-    $drivers = @(Get-CimInstance Win32_PnPSignedDriver |
+    Write-Host '  Drivers...' -ForegroundColor Gray
+
+    $drivers = @(
+        Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue |
         ForEach-Object {
 
             [PSCustomObject]@{
@@ -614,36 +970,60 @@ function Get-SoftwareInventory {
                 Assinado = $_.IsSigned
                 Provedor = $_.DriverProviderName
             }
-        })
+        }
+    )
+
+    # --------------------------------------------------------
+    # RESULTADO
+    # --------------------------------------------------------
 
     [PSCustomObject]@{
 
         ProgramasInstalados = $programs
+
+        MicrosoftOffice = $office
+
         LicenciamentoWindows = $license
+
         Antivirus = $antivirus
+
         Firewall = $firewall
+
         AtualizacoesInstaladas = $updates
+
         Drivers = $drivers
 
         Observacoes = @(
+
             'Programas portateis podem nao aparecer na lista.',
+
             'Get-HotFix nao representa necessariamente todas as atualizacoes do Windows Update.',
+
             'Nenhuma senha ou chave de produto e coletada.',
+
+            'O inventario do Microsoft Office identifica produto, edicao, versao, arquitetura, idioma e canal de atualizacao quando disponiveis.',
+
+            'A identificacao do Office pode utilizar registros Click-to-Run e registros de desinstalacao do Windows.',
+
             'A ativacao do Office nao e verificada nesta versao.',
-            'O estado do antivirus e apresentado como dado bruto, sem presumir que esteja ativo.'
+
+            'O estado do antivirus e apresentado como dado bruto, sem presumir que esteja ativo.',
+
+            'Informacoes de licenciamento do Windows nao incluem a chave completa do produto.'
         )
     }
 }
-
-# ------------------------------------------------------------
-# REDE
-# ------------------------------------------------------------
+# ============================================================
+# REDE E CONECTIVIDADE
+# ============================================================
 
 function Get-NetworkInventory {
 
-    Write-Host '  Adaptadores de rede...'
+    Write-Host '  Adaptadores de rede...' -ForegroundColor Gray
 
-    $adapters = @(Get-CimInstance Win32_NetworkAdapterConfiguration |
+    $adapters = @(
+        Get-CimInstance Win32_NetworkAdapterConfiguration `
+            -ErrorAction SilentlyContinue |
         Where-Object { $_.IPEnabled } |
         ForEach-Object {
 
@@ -658,11 +1038,17 @@ function Get-NetworkInventory {
                 ServidorDHCP = $_.DHCPServer
                 DominioDNS = $_.DNSDomain
             }
-        })
+        }
+    )
 
-    Write-Host '  Compartilhamentos...'
+    # --------------------------------------------------------
+    # COMPARTILHAMENTOS
+    # --------------------------------------------------------
 
-    $shares = @(Get-CimInstance Win32_Share |
+    Write-Host '  Compartilhamentos...' -ForegroundColor Gray
+
+    $shares = @(
+        Get-CimInstance Win32_Share -ErrorAction SilentlyContinue |
         ForEach-Object {
 
             [PSCustomObject]@{
@@ -671,12 +1057,19 @@ function Get-NetworkInventory {
                 Tipo = $_.Type
                 Descricao = $_.Description
             }
-        })
+        }
+    )
 
-    Write-Host '  Unidades de rede...'
+    # --------------------------------------------------------
+    # UNIDADES DE REDE MAPEADAS
+    # --------------------------------------------------------
 
-    $mappedDrives = @(Get-CimInstance Win32_LogicalDisk `
-        -Filter 'DriveType=4' |
+    Write-Host '  Unidades de rede...' -ForegroundColor Gray
+
+    $mappedDrives = @(
+        Get-CimInstance Win32_LogicalDisk `
+            -Filter 'DriveType=4' `
+            -ErrorAction SilentlyContinue |
         ForEach-Object {
 
             [PSCustomObject]@{
@@ -684,72 +1077,122 @@ function Get-NetworkInventory {
                 Caminho = $_.ProviderName
                 Nome = $_.VolumeName
             }
-        })
+        }
+    )
 
-    Write-Host '  Portas TCP em escuta...'
+    # --------------------------------------------------------
+    # PORTAS TCP EM ESCUTA
+    # --------------------------------------------------------
+
+    Write-Host '  Portas TCP em escuta...' -ForegroundColor Gray
 
     $tcp = @()
 
     if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
 
-        $tcp = @(Get-NetTCPConnection -State Listen |
-            Select-Object -First 500 |
-            ForEach-Object {
+        try {
 
-                [PSCustomObject]@{
-                    EnderecoLocal = $_.LocalAddress
-                    Porta = $_.LocalPort
-                    PID = $_.OwningProcess
-                    Processo = Get-ProcessNameById $_.OwningProcess
+            $tcp = @(
+                Get-NetTCPConnection -State Listen `
+                    -ErrorAction Stop |
+                Select-Object -First 500 |
+                ForEach-Object {
+
+                    [PSCustomObject]@{
+                        EnderecoLocal = $_.LocalAddress
+                        Porta = $_.LocalPort
+                        PID = $_.OwningProcess
+                        Processo = Get-ProcessNameById $_.OwningProcess
+                    }
                 }
-            })
+            )
+
+        }
+        catch {
+
+            Write-Warning "Nao foi possivel consultar portas TCP: $($_.Exception.Message)"
+        }
     }
 
-    Write-Host '  Endpoints UDP...'
+    # --------------------------------------------------------
+    # ENDPOINTS UDP
+    # --------------------------------------------------------
+
+    Write-Host '  Endpoints UDP...' -ForegroundColor Gray
 
     $udp = @()
 
     if (Get-Command Get-NetUDPEndpoint -ErrorAction SilentlyContinue) {
 
-        $udp = @(Get-NetUDPEndpoint |
-            Select-Object -First 500 |
-            ForEach-Object {
+        try {
 
-                [PSCustomObject]@{
-                    EnderecoLocal = $_.LocalAddress
-                    Porta = $_.LocalPort
-                    PID = $_.OwningProcess
-                    Processo = Get-ProcessNameById $_.OwningProcess
+            $udp = @(
+                Get-NetUDPEndpoint -ErrorAction Stop |
+                Select-Object -First 500 |
+                ForEach-Object {
+
+                    [PSCustomObject]@{
+                        EnderecoLocal = $_.LocalAddress
+                        Porta = $_.LocalPort
+                        PID = $_.OwningProcess
+                        Processo = Get-ProcessNameById $_.OwningProcess
+                    }
                 }
-            })
+            )
+
+        }
+        catch {
+
+            Write-Warning "Nao foi possivel consultar endpoints UDP: $($_.Exception.Message)"
+        }
     }
 
-    Write-Host '  Dispositivos ja conhecidos na rede...'
+    # --------------------------------------------------------
+    # DISPOSITIVOS CONHECIDOS NA REDE
+    # --------------------------------------------------------
+
+    Write-Host '  Dispositivos ja conhecidos na rede...' -ForegroundColor Gray
 
     $neighbors = @()
 
     if (Get-Command Get-NetNeighbor -ErrorAction SilentlyContinue) {
 
-        $neighbors = @(Get-NetNeighbor |
-            Where-Object {
-                $_.LinkLayerAddress -and
-                $_.LinkLayerAddress -ne '00-00-00-00-00-00' -and
-                $_.IPAddress -notmatch '^(224\.|239\.|ff)'
-            } |
-            ForEach-Object {
+        try {
 
-                [PSCustomObject]@{
-                    Interface = $_.InterfaceAlias
-                    IP = $_.IPAddress
-                    MAC = $_.LinkLayerAddress
-                    Estado = [string]$_.State
+            $neighbors = @(
+                Get-NetNeighbor -ErrorAction Stop |
+                Where-Object {
+
+                    $_.LinkLayerAddress -and
+                    $_.LinkLayerAddress -ne '00-00-00-00-00-00' -and
+                    $_.IPAddress -notmatch '^(224\.|239\.|ff)'
+                } |
+                ForEach-Object {
+
+                    [PSCustomObject]@{
+                        Interface = $_.InterfaceAlias
+                        IP = $_.IPAddress
+                        MAC = $_.LinkLayerAddress
+                        Estado = [string]$_.State
+                    }
                 }
-            })
+            )
+
+        }
+        catch {
+
+            Write-Warning "Nao foi possivel consultar dispositivos conhecidos: $($_.Exception.Message)"
+        }
     }
 
-    Write-Host '  Impressoras...'
+    # --------------------------------------------------------
+    # IMPRESSORAS
+    # --------------------------------------------------------
 
-    $printers = @(Get-CimInstance Win32_Printer |
+    Write-Host '  Impressoras...' -ForegroundColor Gray
+
+    $printers = @(
+        Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue |
         ForEach-Object {
 
             [PSCustomObject]@{
@@ -760,820 +1203,333 @@ function Get-NetworkInventory {
                 Padrao = $_.Default
                 Rede = $_.Network
             }
-        })
+        }
+    )
+
+    # --------------------------------------------------------
+    # RESULTADO
+    # --------------------------------------------------------
 
     [PSCustomObject]@{
 
         Adaptadores = $adapters
+
         Compartilhamentos = $shares
+
         UnidadesMapeadas = $mappedDrives
+
         PortasTCPEmEscuta = $tcp
+
         EndpointsUDP = $udp
+
         DispositivosConhecidosNaRede = $neighbors
+
         Impressoras = $printers
 
         Observacoes = @(
+
             'Nao foi executada varredura ativa na rede.',
+
             'Dispositivos conhecidos sao obtidos do cache ARP/NDP do Windows.',
+
             'A lista nao representa necessariamente todos os dispositivos da rede.',
-            'Endpoints UDP nao possuem estado LISTEN equivalente ao TCP.'
+
+            'Endpoints UDP nao possuem estado LISTEN equivalente ao TCP.',
+
+            'A coleta de portas TCP e UDP e limitada a 500 registros por categoria.',
+
+            'As informacoes coletadas representam o estado da rede no momento da execucao.'
         )
     }
 }
-
-# ------------------------------------------------------------
-# GERACAO DO RELATORIO HTML
-# ------------------------------------------------------------
-
-function ConvertTo-HtmlTable {
-    param(
-        [object[]]$Items,
-        [string]$EmptyMessage = 'Nenhum registro encontrado.'
-    )
-
-    if (-not $Items -or $Items.Count -eq 0) {
-        return "<p class='empty'>$EmptyMessage</p>"
-    }
-
-    $first = $Items | Select-Object -First 1
-    $properties = @($first.PSObject.Properties.Name)
-
-    $html = '<div class="table-wrap"><table><thead><tr>'
-
-    foreach ($property in $properties) {
-        $html += '<th>' + (Get-HtmlEncoded $property) + '</th>'
-    }
-
-    $html += '</tr></thead><tbody>'
-
-    foreach ($item in $Items) {
-
-        $html += '<tr>'
-
-        foreach ($property in $properties) {
-
-            $value = $item.$property
-
-            if ($null -eq $value) {
-                $display = '-'
-            }
-            elseif ($value -is [array]) {
-                $display = ($value -join ', ')
-            }
-            elseif ($value -is [System.Collections.IDictionary]) {
-                $display = ($value | ConvertTo-Json -Compress -Depth 5)
-            }
-            else {
-                $display = [string]$value
-            }
-
-            if ([string]::IsNullOrWhiteSpace($display)) {
-                $display = '-'
-            }
-
-            $html += '<td>' + (Get-HtmlEncoded $display) + '</td>'
-        }
-
-        $html += '</tr>'
-    }
-
-    $html += '</tbody></table></div>'
-
-    return $html
-}
-
-function New-InventoryHtml {
-    param(
-        $Inventory,
-        [string]$HtmlPath
-    )
-
-    $computer = $Inventory.Identificacao
-    $hardware = $Inventory.Hardware
-    $software = $Inventory.Software
-    $network = $Inventory.Rede
-
-    $ramTotal = 0
-
-    foreach ($module in @($hardware.MemoriaRAM)) {
-        if ($module.CapacidadeGB) {
-            $ramTotal += [double]$module.CapacidadeGB
-        }
-    }
-
-    $diskTotal = @($hardware.DiscosFisicos).Count
-    $programTotal = @($software.ProgramasInstalados).Count
-    $printerTotal = @($network.Impressoras).Count
-    $tcpTotal = @($network.PortasTCPEmEscuta).Count
-
-    $volumeCards = ''
-
-    foreach ($volume in @($hardware.Volumes)) {
-
-        if (-not $volume.CapacidadeGB -or $volume.CapacidadeGB -le 0) {
-            continue
-        }
-
-        $used = [double]$volume.OcupadoPercentual
-        $free = [double]$volume.LivrePercentual
-
-        $volumeCards += @"
-        <div class="volume-card">
-            <div class="volume-title">
-                <strong>$(Get-HtmlEncoded $volume.Unidade)</strong>
-                <span>$(Get-HtmlEncoded $volume.Nome)</span>
-            </div>
-            <div class="bar">
-                <div class="bar-used" style="width:$used%"></div>
-            </div>
-            <div class="volume-details">
-                <span>Ocupado: $used%</span>
-                <span>Livre: $free%</span>
-            </div>
-            <div class="volume-details">
-                <span>Capacidade: $($volume.CapacidadeGB) GB</span>
-                <span>Disponivel: $($volume.LivreGB) GB</span>
-            </div>
-        </div>
-"@
-    }
-
-    if (-not $volumeCards) {
-        $volumeCards = '<p class="empty">Nenhum volume local identificado.</p>'
-    }
-
-    $htmlCpu = ConvertTo-HtmlTable @($hardware.Processadores)
-    $htmlRam = ConvertTo-HtmlTable @($hardware.MemoriaRAM)
-    $htmlGpu = ConvertTo-HtmlTable @($hardware.PlacasVideo)
-    $htmlDisks = ConvertTo-HtmlTable @($hardware.DiscosFisicos)
-    $htmlHealth = ConvertTo-HtmlTable @($hardware.SaudeDiscos)
-    $htmlMonitors = ConvertTo-HtmlTable @($hardware.Monitores)
-    $htmlUsb = ConvertTo-HtmlTable @($hardware.DispositivosUSB)
-    $htmlBattery = ConvertTo-HtmlTable @($hardware.Baterias)
-
-    $htmlPrograms = ConvertTo-HtmlTable @($software.ProgramasInstalados)
-    $htmlLicense = ConvertTo-HtmlTable @($software.LicenciamentoWindows)
-    $htmlAntivirus = ConvertTo-HtmlTable @($software.Antivirus)
-    $htmlFirewall = ConvertTo-HtmlTable @($software.Firewall)
-    $htmlUpdates = ConvertTo-HtmlTable @($software.AtualizacoesInstaladas)
-    $htmlDrivers = ConvertTo-HtmlTable @($software.Drivers)
-
-    $htmlAdapters = ConvertTo-HtmlTable @($network.Adaptadores)
-    $htmlShares = ConvertTo-HtmlTable @($network.Compartilhamentos)
-    $htmlMapped = ConvertTo-HtmlTable @($network.UnidadesMapeadas)
-    $htmlTcp = ConvertTo-HtmlTable @($network.PortasTCPEmEscuta)
-    $htmlUdp = ConvertTo-HtmlTable @($network.EndpointsUDP)
-    $htmlNeighbors = ConvertTo-HtmlTable @($network.DispositivosConhecidosNaRede)
-    $htmlPrinters = ConvertTo-HtmlTable @($network.Impressoras)
-
-    $generated = Get-Date -Format 'dd/MM/yyyy HH:mm:ss'
-
-    $html = @"
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Seattle Inventory - $($computer.NomeComputador)</title>
-
-<style>
-
-:root {
-    --primary: #102a43;
-    --secondary: #176b87;
-    --accent: #f39c35;
-    --background: #f2f5f8;
-    --card: #ffffff;
-    --text: #243746;
-    --muted: #6b7c8c;
-    --border: #dce4eb;
-}
-
-* {
-    box-sizing: border-box;
-}
-
-body {
-    margin: 0;
-    background: var(--background);
-    color: var(--text);
-    font-family: "Segoe UI", Arial, sans-serif;
-}
-
-header {
-    background: linear-gradient(120deg, #102a43, #176b87);
-    color: white;
-    padding: 30px 5%;
-}
-
-header h1 {
-    margin: 0;
-    font-size: 29px;
-}
-
-header p {
-    margin: 8px 0 0;
-    color: #d8e7ef;
-}
-
-.container {
-    max-width: 1500px;
-    margin: 25px auto;
-    padding: 0 20px;
-}
-
-.toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-}
-
-button {
-    border: 0;
-    border-radius: 7px;
-    background: var(--secondary);
-    color: white;
-    padding: 11px 17px;
-    cursor: pointer;
-    font-weight: 600;
-}
-
-button:hover {
-    background: var(--primary);
-}
-
-.cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 15px;
-    margin-bottom: 25px;
-}
-
-.card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-    padding: 20px;
-    box-shadow: 0 2px 7px rgba(0,0,0,.04);
-}
-
-.card-label {
-    color: var(--muted);
-    font-size: 13px;
-}
-
-.card-value {
-    font-size: 27px;
-    font-weight: 700;
-    color: var(--primary);
-    margin-top: 8px;
-}
-
-.card-detail {
-    color: var(--muted);
-    font-size: 12px;
-    margin-top: 5px;
-}
-
-.panel {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-    padding: 22px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 7px rgba(0,0,0,.035);
-}
-
-.panel h2 {
-    margin: 0 0 17px;
-    color: var(--primary);
-    font-size: 20px;
-    border-bottom: 2px solid var(--accent);
-    padding-bottom: 10px;
-}
-
-.panel h3 {
-    color: var(--secondary);
-    margin-top: 24px;
-}
-
-.info-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 13px;
-}
-
-.info-item {
-    padding: 11px;
-    background: #f6f8fa;
-    border-radius: 7px;
-    overflow-wrap: anywhere;
-}
-
-.info-item span {
-    display: block;
-    color: var(--muted);
-    font-size: 12px;
-    margin-bottom: 5px;
-}
-
-.info-item strong {
-    font-size: 14px;
-}
-
-.volume-card {
-    padding: 15px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 13px;
-}
-
-.volume-title {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 12px;
-}
-
-.volume-title span {
-    color: var(--muted);
-}
-
-.bar {
-    width: 100%;
-    height: 13px;
-    background: #e5ebf0;
-    border-radius: 20px;
-    overflow: hidden;
-}
-
-.bar-used {
-    height: 100%;
-    background: linear-gradient(90deg, #176b87, #f39c35);
-    border-radius: 20px;
-}
-
-.volume-details {
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
-    color: var(--muted);
-    font-size: 12px;
-}
-
-.table-wrap {
-    width: 100%;
-    overflow-x: auto;
-}
-
-table {
-    border-collapse: collapse;
-    width: 100%;
-    font-size: 13px;
-    margin-top: 8px;
-}
-
-th {
-    background: #eaf0f5;
-    color: var(--primary);
-    text-align: left;
-    white-space: nowrap;
-}
-
-th, td {
-    padding: 10px;
-    border: 1px solid var(--border);
-    vertical-align: top;
-}
-
-td {
-    overflow-wrap: anywhere;
-}
-
-tr:nth-child(even) {
-    background: #fafbfd;
-}
-
-.empty {
-    color: var(--muted);
-    font-style: italic;
-    padding: 12px 0;
-}
-
-.note {
-    background: #fff8e9;
-    border-left: 4px solid var(--accent);
-    padding: 12px 15px;
-    margin: 9px 0;
-    border-radius: 4px;
-    font-size: 13px;
-}
-
-footer {
-    text-align: center;
-    color: var(--muted);
-    padding: 25px;
-    font-size: 12px;
-}
-
-nav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 20px;
-}
-
-nav a {
-    color: var(--secondary);
-    background: white;
-    border: 1px solid var(--border);
-    padding: 8px 12px;
-    border-radius: 6px;
-    text-decoration: none;
-    font-size: 13px;
-}
-
-@media print {
-    body {
-        background: white;
-    }
-
-    header {
-        background: #102a43 !important;
-        print-color-adjust: exact;
-        -webkit-print-color-adjust: exact;
-    }
-
-    .toolbar, nav {
-        display: none;
-    }
-
-    .panel, .card {
-        break-inside: avoid;
-        box-shadow: none;
-    }
-
-    .table-wrap {
-        overflow: visible;
-    }
-
-    table {
-        font-size: 9px;
-    }
-
-    th, td {
-        padding: 5px;
-    }
-}
-
-</style>
-</head>
-
-<body>
-
-<header>
-    <h1>SEATTLE INVENTORY</h1>
-    <p>Relatorio de inventario computacional | LR Tecnologia</p>
-    <p>Equipamento: $(Get-HtmlEncoded $computer.NomeComputador)</p>
-</header>
-
-<div class="container">
-
-    <div class="toolbar">
-        <div>
-            <strong>Relatorio gerado em:</strong> $generated
-        </div>
-        <button onclick="window.print()">Imprimir / Salvar em PDF</button>
-    </div>
-
-    <nav>
-        <a href="#identificacao">Identificacao</a>
-        <a href="#hardware">Hardware</a>
-        <a href="#armazenamento">Armazenamento</a>
-        <a href="#software">Software</a>
-        <a href="#rede">Rede</a>
-        <a href="#seguranca">Seguranca</a>
-    </nav>
-
-    <div class="cards">
-
-        <div class="card">
-            <div class="card-label">Memoria RAM instalada</div>
-            <div class="card-value">$([math]::Round($ramTotal, 2)) GB</div>
-            <div class="card-detail">$(@($hardware.MemoriaRAM).Count) modulo(s)</div>
-        </div>
-
-        <div class="card">
-            <div class="card-label">Discos fisicos</div>
-            <div class="card-value">$diskTotal</div>
-            <div class="card-detail">Unidades identificadas</div>
-        </div>
-
-        <div class="card">
-            <div class="card-label">Programas instalados</div>
-            <div class="card-value">$programTotal</div>
-            <div class="card-detail">Registros encontrados</div>
-        </div>
-
-        <div class="card">
-            <div class="card-label">Impressoras</div>
-            <div class="card-value">$printerTotal</div>
-            <div class="card-detail">Dispositivos identificados</div>
-        </div>
-
-        <div class="card">
-            <div class="card-label">Portas TCP em escuta</div>
-            <div class="card-value">$tcpTotal</div>
-            <div class="card-detail">Endpoints encontrados</div>
-        </div>
-
-    </div>
-
-    <section class="panel" id="identificacao">
-        <h2>Identificacao do computador</h2>
-
-        <div class="info-grid">
-
-            <div class="info-item">
-                <span>Nome do computador</span>
-                <strong>$(Get-HtmlEncoded $computer.NomeComputador)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>Fabricante</span>
-                <strong>$(Get-HtmlEncoded $computer.Fabricante)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>Modelo</span>
-                <strong>$(Get-HtmlEncoded $computer.Modelo)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>Usuario</span>
-                <strong>$(Get-HtmlEncoded $computer.UsuarioLogado)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>Windows</span>
-                <strong>$(Get-HtmlEncoded $computer.Windows)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>Versao / Build</span>
-                <strong>$(Get-HtmlEncoded $computer.DisplayVersion) / $(Get-HtmlEncoded $computer.BuildWindows)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>Arquitetura</span>
-                <strong>$(Get-HtmlEncoded $computer.Arquitetura)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>Dominio ou grupo</span>
-                <strong>$(Get-HtmlEncoded $computer.DominioOuGrupo)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>Placa-mae</span>
-                <strong>$(Get-HtmlEncoded $computer.PlacaMaeFabricante) $(Get-HtmlEncoded $computer.PlacaMaeModelo)</strong>
-            </div>
-
-            <div class="info-item">
-                <span>BIOS</span>
-                <strong>$(Get-HtmlEncoded $computer.VersaoBIOS)</strong>
-            </div>
-
-        </div>
-    </section>
-
-    <section class="panel" id="hardware">
-        <h2>Hardware</h2>
-
-        <h3>Processador</h3>
-        $htmlCpu
-
-        <h3>Memoria RAM</h3>
-        $htmlRam
-
-        <h3>Placas de video</h3>
-        $htmlGpu
-
-        <h3>Monitores</h3>
-        $htmlMonitors
-
-        <h3>Dispositivos USB</h3>
-        $htmlUsb
-
-        <h3>Bateria</h3>
-        $htmlBattery
-
-    </section>
-
-    <section class="panel" id="armazenamento">
-        <h2>Armazenamento</h2>
-
-        <h3>Uso dos volumes</h3>
-        $volumeCards
-
-        <h3>Discos fisicos</h3>
-        $htmlDisks
-
-        <h3>Saude dos discos</h3>
-        $htmlHealth
-
-    </section>
-
-    <section class="panel" id="software">
-        <h2>Software instalado</h2>
-
-        <h3>Programas</h3>
-        $htmlPrograms
-
-        <h3>Drivers</h3>
-        $htmlDrivers
-
-        <h3>Atualizacoes instaladas</h3>
-        $htmlUpdates
-
-    </section>
-
-    <section class="panel" id="seguranca">
-        <h2>Seguranca e licenciamento</h2>
-
-        <h3>Licenciamento Windows</h3>
-        $htmlLicense
-
-        <h3>Antivirus identificados</h3>
-        $htmlAntivirus
-
-        <h3>Firewall</h3>
-        $htmlFirewall
-
-        <div class="note">
-            A identificacao de um antivirus nao significa necessariamente
-            que ele esteja ativo ou atualizado. O estado bruto foi preservado
-            para analise posterior.
-        </div>
-
-    </section>
-
-    <section class="panel" id="rede">
-        <h2>Rede</h2>
-
-        <h3>Adaptadores e configuracoes IP</h3>
-        $htmlAdapters
-
-        <h3>Impressoras</h3>
-        $htmlPrinters
-
-        <h3>Unidades de rede</h3>
-        $htmlMapped
-
-        <h3>Compartilhamentos</h3>
-        $htmlShares
-
-        <h3>Portas TCP em escuta</h3>
-        $htmlTcp
-
-        <h3>Endpoints UDP</h3>
-        $htmlUdp
-
-        <h3>Dispositivos conhecidos na rede</h3>
-        $htmlNeighbors
-
-    </section>
-
-    <section class="panel">
-        <h2>Observacoes tecnicas</h2>
-
-        <div class="note">
-            Este inventario foi realizado em modo somente leitura.
-            Nenhuma configuracao do computador foi alterada.
-        </div>
-
-        <div class="note">
-            Nenhum dado foi enviado pela internet.
-            Os arquivos JSON e HTML permanecem no computador.
-        </div>
-
-        <div class="note">
-            Algumas informacoes dependem do hardware, dos drivers,
-            das permissoes do Windows e da disponibilidade das interfaces WMI.
-        </div>
-
-        <div class="note">
-            A lista de dispositivos de rede utiliza informacoes ja conhecidas
-            pelo Windows. Nao foi executada varredura ativa.
-        </div>
-
-    </section>
-
-</div>
-
-<footer>
-    SEATTLE INVENTORY V1.0.1 | LR TECNOLOGIA<br>
-    Relatorio local de inventario computacional
-</footer>
-
-</body>
-</html>
-"@
-
-    $encoding = New-Object System.Text.UTF8Encoding($false)
-
-    [System.IO.File]::WriteAllText(
-        $HtmlPath,
-        $html,
-        $encoding
-    )
-}
-
-# ------------------------------------------------------------
+# ============================================================
 # EXECUCAO PRINCIPAL
-# ------------------------------------------------------------
+# SEATTLE INVENTORY V1.0.2
+# ============================================================
+
+function Set-InventoryDirectorySecurity {
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    # --------------------------------------------------------
+    # CRIAR DIRETORIO
+    # --------------------------------------------------------
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+
+        New-Item -ItemType Directory `
+            -Path $Path `
+            -Force `
+            -ErrorAction Stop | Out-Null
+    }
+
+    # --------------------------------------------------------
+    # CONFIGURAR ACL
+    # --------------------------------------------------------
+
+    $acl = New-Object System.Security.AccessControl.DirectorySecurity
+
+    # Desabilita heranca de permissoes.
+    $acl.SetAccessRuleProtection($true, $false)
+
+    $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor `
+                   [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+
+    $propagation = [System.Security.AccessControl.PropagationFlags]::None
+
+    $accessType = [System.Security.AccessControl.AccessControlType]::Allow
+
+    # SYSTEM, Administradores e usuario atual.
+    $allowedSids = @(
+        'S-1-5-18',
+        'S-1-5-32-544',
+        [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    )
+
+    foreach ($sidValue in ($allowedSids | Select-Object -Unique)) {
+
+        $sid = New-Object System.Security.Principal.SecurityIdentifier($sidValue)
+
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $sid,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            $inheritance,
+            $propagation,
+            $accessType
+        )
+
+        $acl.AddAccessRule($rule)
+    }
+
+    # Aplica as permissoes.
+    Set-Acl -LiteralPath $Path `
+        -AclObject $acl `
+        -ErrorAction Stop
+
+    # --------------------------------------------------------
+    # MARCAR DIRETORIO COMO OCULTO
+    # --------------------------------------------------------
+
+    $directory = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+
+    $directory.Attributes = $directory.Attributes -bor `
+        [System.IO.FileAttributes]::Hidden
+
+    # --------------------------------------------------------
+    # VALIDACAO
+    # --------------------------------------------------------
+
+    $verification = Get-Acl -LiteralPath $Path -ErrorAction Stop
+
+    if (-not $verification.AreAccessRulesProtected) {
+
+        throw 'A heranca de permissoes nao foi desabilitada corretamente.'
+    }
+
+    return $true
+}
+
+# ============================================================
+# EXECUCAO
+# ============================================================
 
 try {
 
-    Write-Host ''
-    Write-Host '============================================' -ForegroundColor Cyan
-    Write-Host '       SEATTLE INVENTORY V1.0.1' -ForegroundColor Cyan
-    Write-Host '             LR TECNOLOGIA' -ForegroundColor Cyan
-    Write-Host '============================================' -ForegroundColor Cyan
-    Write-Host ''
+    Clear-Host
 
-    Write-Host 'Iniciando inventario...' -ForegroundColor Yellow
-    Write-Host 'Modo somente leitura. Nenhum dado sera enviado.'
+    Write-Host ''
+    Write-Host '================================================' -ForegroundColor Cyan
+    Write-Host '           SEATTLE INVENTORY V1.0.2' -ForegroundColor Cyan
+    Write-Host '                 LR TECNOLOGIA' -ForegroundColor Cyan
+    Write-Host '================================================' -ForegroundColor Cyan
     Write-Host ''
 
-    if (-not (Test-Path -LiteralPath $OutputDirectory)) {
+    Write-Host 'Iniciando inventario computacional...' -ForegroundColor Yellow
 
-        New-Item -ItemType Directory `
-            -Path $OutputDirectory `
-            -Force | Out-Null
+    Write-Host 'Modo de operacao: SOMENTE LEITURA' -ForegroundColor Green
+
+    Write-Host 'Armazenamento: LOCAL' -ForegroundColor Green
+
+    Write-Host ''
+
+    # --------------------------------------------------------
+    # DIRETORIO DE DESTINO
+    # --------------------------------------------------------
+
+    if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+
+        $OutputDirectory = Join-Path $env:ProgramData `
+            "LR Tecnologia\Seattle\Inventarios\$env:COMPUTERNAME"
     }
+
+    Write-Host '[1/7] Preparando armazenamento protegido...' -ForegroundColor Green
+
+    Set-InventoryDirectorySecurity -Path $OutputDirectory | Out-Null
+
+    Write-Host '      Diretorio protegido com sucesso.' -ForegroundColor Gray
+
+    # --------------------------------------------------------
+    # INICIO DA COLETA
+    # --------------------------------------------------------
 
     $start = Get-Date
 
-    Write-Host '[1/4] Identificacao do computador' -ForegroundColor Green
+    # --------------------------------------------------------
+    # IDENTIFICACAO
+    # --------------------------------------------------------
+
+    Write-Host ''
+    Write-Host '[2/7] Identificacao do computador...' -ForegroundColor Green
+
     $computer = Get-ComputerInventory
 
+    # --------------------------------------------------------
+    # HARDWARE
+    # --------------------------------------------------------
+
     Write-Host ''
-    Write-Host '[2/4] Inventario de hardware' -ForegroundColor Green
+    Write-Host '[3/7] Inventario de hardware...' -ForegroundColor Green
+
     $hardware = Get-HardwareInventory
 
-    Write-Host ''
-    Write-Host '[3/4] Inventario de software' -ForegroundColor Green
-    $software = Get-SoftwareInventory
+    # --------------------------------------------------------
+    # SOFTWARE
+    # --------------------------------------------------------
 
     Write-Host ''
-    Write-Host '[4/4] Inventario de rede' -ForegroundColor Green
+    Write-Host '[4/7] Inventario de software...' -ForegroundColor Green
+
+    $software = Get-SoftwareInventory
+
+    # --------------------------------------------------------
+    # REDE
+    # --------------------------------------------------------
+
+    Write-Host ''
+    Write-Host '[5/7] Inventario de rede...' -ForegroundColor Green
+
     $network = Get-NetworkInventory
+
+    # --------------------------------------------------------
+    # GEOLOCALIZACAO
+    # --------------------------------------------------------
+
+    Write-Host ''
+    Write-Host '[6/7] Obtendo localizacao do equipamento...' -ForegroundColor Green
+
+    $location = $null
+
+    try {
+
+        $location = Get-ComputerLocation
+
+        if ($null -ne $location) {
+
+            Write-Host '      Localizacao obtida.' -ForegroundColor Green
+
+            Write-Host "      Metodo: $($location.Metodo)" -ForegroundColor Gray
+
+            if ($location.Cidade) {
+                Write-Host "      Localidade: $($location.Cidade) / $($location.Regiao)" -ForegroundColor Gray
+            }
+        }
+        else {
+
+            Write-Host '      Localizacao nao disponivel.' -ForegroundColor Yellow
+        }
+
+    }
+    catch {
+
+        Write-Warning "Falha na geolocalizacao: $($_.Exception.Message)"
+
+        $location = $null
+    }
+
+    # --------------------------------------------------------
+    # MONTAGEM DO INVENTARIO
+    # --------------------------------------------------------
+
+    Write-Host ''
+    Write-Host '[7/7] Consolidando inventario...' -ForegroundColor Green
+
+    $finish = Get-Date
 
     $inventory = [PSCustomObject]@{
 
         Produto = 'Seattle Inventory'
-        Versao = '1.0.1'
 
-        DataColeta = (Get-Date).ToString('o')
+        Versao = '1.0.2'
+
+        Desenvolvedor = 'LR Tecnologia'
+
+        DataColeta = $finish.ToString('o')
+
         InicioColeta = $start.ToString('o')
-        FimColeta = (Get-Date).ToString('o')
+
+        FimColeta = $finish.ToString('o')
 
         Modo = 'Somente leitura'
+
         EnvioRemoto = $false
 
         Identificacao = $computer
+
         Hardware = $hardware
+
         Software = $software
+
         Rede = $network
 
+        Localizacao = $location
+
         Limitacoes = @(
+
             'A disponibilidade das informacoes depende do hardware e dos drivers.',
+
             'Sensores de temperatura de CPU e GPU podem nao estar disponiveis.',
+
             'A leitura SMART depende do disco e do controlador.',
+
             'A execucao como Administrador pode ampliar a quantidade de dados coletados.',
+
             'A identificacao de unidades virtuais e aproximada.',
-            'A saude e o desgaste da bateria dependem do suporte WMI do equipamento.'
+
+            'A saude e o desgaste da bateria dependem do suporte WMI do equipamento.',
+
+            'A geolocalizacao do Windows depende das permissoes e da disponibilidade do servico de localizacao.',
+
+            'A geolocalizacao por IP e aproximada e nao representa a posicao exata do equipamento.',
+
+            'O Express Service Code somente e apresentado quando obtido por metodo confiavel.',
+
+            'Nenhuma chave de produto do Windows ou Office e coletada.'
         )
     }
+
+    # --------------------------------------------------------
+    # NOMES DOS ARQUIVOS
+    # --------------------------------------------------------
 
     $baseName = 'SeattleInventory_{0}_{1}' -f `
         $env:COMPUTERNAME, `
         (Get-Date -Format 'yyyyMMdd_HHmmss')
 
     $jsonPath = Join-Path $OutputDirectory ($baseName + '.json')
+
     $htmlPath = Join-Path $OutputDirectory ($baseName + '.html')
+
+    # --------------------------------------------------------
+    # GERAR JSON
+    # --------------------------------------------------------
 
     Write-Host ''
     Write-Host 'Gerando arquivo JSON...' -ForegroundColor Yellow
 
-    $json = $inventory | ConvertTo-Json -Depth 20
+    $json = $inventory | ConvertTo-Json -Depth 30
 
     $encoding = New-Object System.Text.UTF8Encoding($false)
 
@@ -1583,62 +1539,131 @@ try {
         $encoding
     )
 
+    # --------------------------------------------------------
+    # GERAR HTML
+    # --------------------------------------------------------
+
     Write-Host 'Gerando relatorio HTML...' -ForegroundColor Yellow
 
-    New-InventoryHtml -Inventory $inventory -HtmlPath $htmlPath
+    New-InventoryHtml `
+        -Inventory $inventory `
+        -HtmlPath $htmlPath
+
+    # --------------------------------------------------------
+    # RESULTADO
+    # --------------------------------------------------------
 
     Write-Host ''
-    Write-Host '============================================' -ForegroundColor Green
-    Write-Host '          INVENTARIO CONCLUIDO' -ForegroundColor Green
-    Write-Host '============================================' -ForegroundColor Green
+    Write-Host '================================================' -ForegroundColor Green
+    Write-Host '              INVENTARIO CONCLUIDO' -ForegroundColor Green
+    Write-Host '================================================' -ForegroundColor Green
 
     Write-Host ''
+
     Write-Host "Computador: $env:COMPUTERNAME"
+
+    Write-Host "Fabricante: $($computer.Fabricante)"
+
+    Write-Host "Modelo: $($computer.Modelo)"
+
+    Write-Host "Numero de serie: $($computer.NumeroSerie)"
+
+    Write-Host "Service Tag Dell: $($computer.DellServiceTag)"
+
     Write-Host "Processadores: $(@($hardware.Processadores).Count)"
+
     Write-Host "Modulos RAM: $(@($hardware.MemoriaRAM).Count)"
+
     Write-Host "Discos fisicos: $(@($hardware.DiscosFisicos).Count)"
+
     Write-Host "Volumes: $(@($hardware.Volumes).Count)"
+
     Write-Host "Programas: $(@($software.ProgramasInstalados).Count)"
+
+    Write-Host "Produtos Office: $(@($software.MicrosoftOffice).Count)"
+
     Write-Host "Adaptadores de rede: $(@($network.Adaptadores).Count)"
+
     Write-Host "Impressoras: $(@($network.Impressoras).Count)"
+
     Write-Host "Portas TCP: $(@($network.PortasTCPEmEscuta).Count)"
+
+    if ($null -ne $location) {
+
+        Write-Host "Geolocalizacao: $($location.Metodo)"
+    }
+    else {
+
+        Write-Host 'Geolocalizacao: Nao disponivel'
+    }
+
+    # --------------------------------------------------------
+    # CAMINHOS
+    # --------------------------------------------------------
 
     Write-Host ''
     Write-Host 'ARQUIVOS GERADOS:' -ForegroundColor Cyan
 
     Write-Host ''
     Write-Host 'JSON:' -ForegroundColor Yellow
+
     Write-Host $jsonPath -ForegroundColor White
 
     Write-Host ''
     Write-Host 'HTML:' -ForegroundColor Yellow
+
     Write-Host $htmlPath -ForegroundColor White
 
     Write-Host ''
-    Write-Host 'O relatorio HTML sera aberto no navegador.'
+    Write-Host 'Diretorio protegido:' -ForegroundColor Green
+
+    Write-Host $OutputDirectory -ForegroundColor Gray
+
+    # --------------------------------------------------------
+    # ABRIR RELATORIO
+    # --------------------------------------------------------
+
+    Write-Host ''
+    Write-Host 'Abrindo relatorio no navegador...' -ForegroundColor Yellow
 
     try {
-        Start-Process $htmlPath
+
+        Start-Process -FilePath $htmlPath -ErrorAction Stop
     }
     catch {
-        Write-Host 'Nao foi possivel abrir o navegador automaticamente.'
+
+        Write-Warning 'Nao foi possivel abrir o navegador automaticamente.'
+
+        Write-Host "Abra manualmente: $htmlPath"
     }
 
     Write-Host ''
-    Write-Host 'Nenhuma informacao foi transmitida pela internet.'
+    Write-Host 'Nenhum relatorio foi transmitido para servidores remotos.' -ForegroundColor Green
+
+    Write-Host 'Inventario finalizado.' -ForegroundColor Green
+
+    Write-Host ''
 
 }
 catch {
 
     Write-Host ''
-    Write-Host 'ERRO DURANTE A COLETA' -ForegroundColor Red
+    Write-Host '================================================' -ForegroundColor Red
+    Write-Host '           ERRO DURANTE O INVENTARIO' -ForegroundColor Red
+    Write-Host '================================================' -ForegroundColor Red
+
+    Write-Host ''
+
     Write-Host $_.Exception.Message -ForegroundColor Red
 
     Write-Host ''
-    Write-Host $_.ScriptStackTrace -ForegroundColor DarkRed
+
+    if ($_.ScriptStackTrace) {
+
+        Write-Host $_.ScriptStackTrace -ForegroundColor DarkRed
+    }
+
+    Write-Host ''
 
     exit 1
 }
-
-Write-Host ''
-Read-Host 'Pressione ENTER para fechar'
