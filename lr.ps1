@@ -1,13 +1,14 @@
-﻿# ============================================================
+```powershell
+# ============================================================
 # SEATTLE - LR TECNOLOGIA
-# Módulo principal
+# Modulo principal
 # Criado e desenvolvido por Leonardo M. Batista
 # ============================================================
 
 $ErrorActionPreference = "Stop"
 
 # ------------------------------------------------------------
-# CONFIGURAÇÃO
+# CONFIGURACAO
 # ------------------------------------------------------------
 
 $GitHubBase = "https://raw.githubusercontent.com/leoklyvert/seattle/main"
@@ -19,9 +20,14 @@ $UrlProgramas      = "$GitHubBase/programas.ps1"
 $UrlOffice         = "$GitHubBase/office.ps1"
 $UrlBackup         = "$GitHubBase/backup.ps1"
 
+$UrlInventario = "$GitHubBase/SeattleInventory_V1.0.ps1"
+
+# Pasta reservada para os inventarios locais
+$PastaInventarios = Join-Path $env:ProgramData "LR Tecnologia\Seattle\Inventarios"
+
 
 # ------------------------------------------------------------
-# FUNÇÕES GERAIS
+# FUNCOES GERAIS
 # ------------------------------------------------------------
 
 function Pausar {
@@ -45,7 +51,7 @@ function Mostrar-Cabecalho {
 
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "              Módulo Seattle by LR Tecnologia" -ForegroundColor Cyan
+    Write-Host "              Modulo Seattle by LR Tecnologia" -ForegroundColor Cyan
     Write-Host "        Criado e desenvolvido por Leonardo M. Batista" -ForegroundColor Gray
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
@@ -53,7 +59,7 @@ function Mostrar-Cabecalho {
 
 
 # ------------------------------------------------------------
-# DOWNLOAD DO MÓDULO
+# DOWNLOAD DOS MODULOS EXISTENTES
 # ------------------------------------------------------------
 
 function Obter-Modulo {
@@ -79,10 +85,9 @@ function Obter-Modulo {
 
         if ([string]::IsNullOrWhiteSpace($Codigo)) {
 
-            throw "O arquivo retornado está vazio."
+            throw "O arquivo retornado esta vazio."
         }
 
-        # Remove qualquer BOM UTF-8 inicial para o Invoke-Expression não tratá-lo como comando.
         $Codigo = ([string]$Codigo).TrimStart([char]0xFEFF)
 
         return $Codigo
@@ -90,9 +95,9 @@ function Obter-Modulo {
     catch {
 
         Write-Host ""
-        Write-Host "ERRO AO CARREGAR MÓDULO" -ForegroundColor Red
+        Write-Host "ERRO AO CARREGAR MODULO" -ForegroundColor Red
         Write-Host "------------------------------------------------------------" -ForegroundColor DarkGray
-        Write-Host "Módulo: $Nome" -ForegroundColor White
+        Write-Host "Modulo: $Nome" -ForegroundColor White
         Write-Host "URL   : $Url" -ForegroundColor White
         Write-Host ""
         Write-Host $_.Exception.Message -ForegroundColor Red
@@ -132,10 +137,192 @@ function Executar-Modulo {
     catch {
 
         Write-Host ""
-        Write-Host "ERRO DURANTE A EXECUÇÃO DO MÓDULO" -ForegroundColor Red
+        Write-Host "ERRO DURANTE A EXECUCAO DO MODULO" -ForegroundColor Red
         Write-Host "------------------------------------------------------------" -ForegroundColor DarkGray
         Write-Host $_.Exception.Message -ForegroundColor Red
         Write-Host ""
+
+        Pausar
+    }
+}
+
+
+# ------------------------------------------------------------
+# PROTECAO DA PASTA DE INVENTARIOS
+# ------------------------------------------------------------
+
+function Configurar-PastaReservada {
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Caminho
+    )
+
+    if (-not (Test-Path -LiteralPath $Caminho)) {
+
+        New-Item `
+            -ItemType Directory `
+            -Path $Caminho `
+            -Force | Out-Null
+    }
+
+    # Impede heranca de permissoes externas
+    $acl = Get-Acl -LiteralPath $Caminho
+
+    $acl.SetAccessRuleProtection($true, $false)
+
+    # Remove regras anteriores
+    foreach ($rule in @($acl.Access)) {
+
+        [void]$acl.RemoveAccessRuleAll($rule)
+    }
+
+    # Usuarios autorizados:
+    # SYSTEM
+    # Administradores
+    # Usuario atual
+
+    $identidades = @(
+        "S-1-5-18",
+        "S-1-5-32-544",
+        [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    ) | Select-Object -Unique
+
+    foreach ($sidTexto in $identidades) {
+
+        $sid = New-Object System.Security.Principal.SecurityIdentifier($sidTexto)
+
+        $regra = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $sid,
+            "FullControl",
+            "ContainerInherit,ObjectInherit",
+            "None",
+            "Allow"
+        )
+
+        [void]$acl.AddAccessRule($regra)
+    }
+
+    Set-Acl -LiteralPath $Caminho -AclObject $acl
+
+    # Marca a pasta como oculta
+    $item = Get-Item -LiteralPath $Caminho -Force
+
+    $item.Attributes = $item.Attributes -bor [System.IO.FileAttributes]::Hidden
+}
+
+
+# ------------------------------------------------------------
+# INVENTARIO COMPLETO
+# ------------------------------------------------------------
+
+function Executar-Inventario {
+
+    $ArquivoTemporario = $null
+
+    try {
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "             SEATTLE INVENTORY" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host ""
+
+        Write-Host "Preparando ambiente de inventario..." -ForegroundColor Yellow
+
+        # Cria e protege a pasta principal
+        Configurar-PastaReservada -Caminho $PastaInventarios
+
+        # Pasta individual do computador
+        $PastaComputador = Join-Path $PastaInventarios $env:COMPUTERNAME
+
+        Configurar-PastaReservada -Caminho $PastaComputador
+
+        Write-Host ""
+        Write-Host "Armazenamento reservado configurado." -ForegroundColor Green
+        Write-Host "Computador: $env:COMPUTERNAME" -ForegroundColor Gray
+        Write-Host ""
+
+        # Nome temporario exclusivo
+        $ArquivoTemporario = Join-Path `
+            $env:TEMP `
+            ("SeattleInventory_" + [guid]::NewGuid().ToString() + ".ps1")
+
+        Write-Host "Baixando coletor do GitHub..." -ForegroundColor Yellow
+
+        $Resposta = Invoke-WebRequest `
+            -Uri $UrlInventario `
+            -UseBasicParsing `
+            -TimeoutSec 120
+
+        $Codigo = [string]$Resposta.Content
+
+        if ([string]::IsNullOrWhiteSpace($Codigo)) {
+
+            throw "O coletor retornado pelo GitHub esta vazio."
+        }
+
+        $Codigo = $Codigo.TrimStart([char]0xFEFF)
+
+        # Salva temporariamente em UTF-8 sem BOM
+        $encoding = New-Object System.Text.UTF8Encoding($false)
+
+        [System.IO.File]::WriteAllText(
+            $ArquivoTemporario,
+            $Codigo,
+            $encoding
+        )
+
+        Write-Host ""
+        Write-Host "Iniciando coleta de inventario..." -ForegroundColor Green
+        Write-Host ""
+
+        # Executa o coletor como script independente
+        & $ArquivoTemporario -OutputDirectory $PastaComputador
+
+        if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+
+            throw "O coletor retornou um codigo de erro."
+        }
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Green
+        Write-Host "          INVENTARIO FINALIZADO" -ForegroundColor Green
+        Write-Host "============================================================" -ForegroundColor Green
+
+        Write-Host ""
+        Write-Host "Relatorios armazenados localmente em:" -ForegroundColor Cyan
+        Write-Host $PastaComputador -ForegroundColor White
+
+        Write-Host ""
+        Write-Host "Nenhum relatorio foi enviado pela internet." -ForegroundColor Green
+
+        Write-Host ""
+        Write-Host "Os arquivos permanecem protegidos no computador."
+
+    }
+    catch {
+
+        Write-Host ""
+        Write-Host "ERRO AO EXECUTAR INVENTARIO" -ForegroundColor Red
+        Write-Host "------------------------------------------------------------" -ForegroundColor DarkGray
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        Write-Host ""
+
+    }
+    finally {
+
+        # Remove o coletor temporario
+        if (
+            $ArquivoTemporario -and
+            (Test-Path -LiteralPath $ArquivoTemporario)
+        ) {
+
+            Remove-Item `
+                -LiteralPath $ArquivoTemporario `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
 
         Pausar
     }
@@ -154,12 +341,13 @@ function Menu-Principal {
 
         Write-Host "MENU PRINCIPAL" -ForegroundColor Yellow
         Write-Host ""
-        Write-Host "1 - Manutenção"
-        Write-Host "2 - Personalização"
+        Write-Host "1 - Manutencao"
+        Write-Host "2 - Personalizacao"
         Write-Host "3 - Programas"
         Write-Host "4 - Office"
-        Write-Host "5 - Diagnóstico"
-        Write-Host "6 - Backup e restauração"
+        Write-Host "5 - Diagnostico Preventivo"
+        Write-Host "6 - Backup e restauracao"
+        Write-Host "7 - Inventario completo"
         Write-Host "0 - Sair"
         Write-Host ""
 
@@ -167,33 +355,19 @@ function Menu-Principal {
 
         switch ($Opcao) {
 
-            # ------------------------------------------------
-            # MANUTENÇÃO
-            # ------------------------------------------------
-
             "1" {
 
                 Executar-Modulo `
                     -Url $UrlManutencao `
-                    -Nome "Manutenção"
+                    -Nome "Manutencao"
             }
-
-
-            # ------------------------------------------------
-            # PERSONALIZAÇÃO
-            # ------------------------------------------------
 
             "2" {
 
                 Executar-Modulo `
                     -Url $UrlPersonalizacao `
-                    -Nome "Personalização"
+                    -Nome "Personalizacao"
             }
-
-
-            # ------------------------------------------------
-            # PROGRAMAS
-            # ------------------------------------------------
 
             "3" {
 
@@ -202,11 +376,6 @@ function Menu-Principal {
                     -Nome "Programas"
             }
 
-
-            # ------------------------------------------------
-            # OFFICE
-            # ------------------------------------------------
-
             "4" {
 
                 Executar-Modulo `
@@ -214,34 +383,24 @@ function Menu-Principal {
                     -Nome "Office"
             }
 
-
-            # ------------------------------------------------
-            # DIAGNÓSTICO
-            # ------------------------------------------------
-
             "5" {
 
                 Executar-Modulo `
                     -Url $UrlDiagnostico `
-                    -Nome "Diagnóstico Preventivo"
+                    -Nome "Diagnostico Preventivo"
             }
-
-
-            # ------------------------------------------------
-            # BACKUP E RESTAURAÇÃO
-            # ------------------------------------------------
 
             "6" {
 
                 Executar-Modulo `
                     -Url $UrlBackup `
-                    -Nome "Backup e restauração"
+                    -Nome "Backup e restauracao"
             }
 
+            "7" {
 
-            # ------------------------------------------------
-            # SAIR
-            # ------------------------------------------------
+                Executar-Inventario
+            }
 
             "0" {
 
@@ -260,7 +419,8 @@ function Menu-Principal {
 
 
 # ============================================================
-# INÍCIO
+# INICIO
 # ============================================================
 
 Menu-Principal
+```
