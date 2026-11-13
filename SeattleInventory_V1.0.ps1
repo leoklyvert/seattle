@@ -1968,14 +1968,24 @@ function Get-ComputerLocation {
 
     Write-Host "Portas TCP: $(@($network.PortasTCPEmEscuta).Count)"
 
-    if ($null -ne $location) {
+    if ($location.Disponivel) {
 
-        Write-Host "Geolocalizacao: $($location.Metodo)"
-    }
-    else {
+    Write-Host "Geolocalizacao: $($location.Metodo)" -ForegroundColor Green
 
-        Write-Host 'Geolocalizacao: Nao disponivel'
-    }
+    Write-Host "Localidade: $($location.Cidade) / $($location.Regiao) / $($location.Pais)"
+
+    Write-Host "Latitude: $($location.Latitude)"
+
+    Write-Host "Longitude: $($location.Longitude)"
+}
+else {
+
+    Write-Host 'Geolocalizacao: NAO IDENTIFICADA' -ForegroundColor Yellow
+
+    Write-Host "Windows: $($location.ErroWindows)"
+
+    Write-Host "IP: $($location.ErroIP)"
+}
 
     # --------------------------------------------------------
     # CAMINHOS
